@@ -14,6 +14,10 @@ const transporterSchema = new mongoose.Schema({
         isOda: {
             type: Boolean,
             default: false
+        },
+        zone: {
+            type: String,
+            required: true
         }
     }]
 }, {timestamps: true});

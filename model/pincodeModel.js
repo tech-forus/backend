@@ -6,10 +6,6 @@ const pincodeSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
-    zone: {
-        type: String,
-        required: true
-    },
     state: {
         type: String,
         required: true

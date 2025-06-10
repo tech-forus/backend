@@ -1,53 +1,163 @@
-
-import mongoose from "mongoose";
-import { Schema } from "mongoose";
-
-const NestedPercentMinSchema = new Schema({
-  percent: { type: Number, required: true },
-  min:     { type: Number, required: true }
-}, { _id: false })
-
-const OdaAppointmentSchema = new Schema({
-  perKg:    { type: Number, default: 0 },
-  perDocket:{ type: Number, default: 0 }
-}, { _id: false })
-
-const ChargeBracketSchema = new Schema({}, { strict: false, _id: false })
-// e.g. { "upTo5": 50, "to6-10": 75, "above10": 100 }
+import mongoose, {Schema} from "mongoose";
 
 const ToZoneRatesSchema = new Schema({
 }, { _id: false , strict: false });
 
-const RateCardSchema = new Schema({
-  companyId:   { type: mongoose.Schema.Types.ObjectId, ref:"transporters", required: true },
+const pricesSchema = new mongoose.Schema({
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "transporters",
+    required: true,
+  },
+  priceRate: {
+    minWeight: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+    docketCharges: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+    fuel: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+    rovCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    inuaranceCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    odaCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    codCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    prepaidCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    topayCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    handlingCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    fmCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    appointmentCharges: {
+      variable: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      fixed: {
+        type: Number,
+        required: true,
+        default: 0
+      }
+    },
+    divisor: {
+      type: Number,
+      required: true,
+      default: 1
+    },
+    minCharges: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+    greenTax: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+    miscellanousCharges: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+  },
   zoneRates: {
     type: Map,
     of: ToZoneRatesSchema,
     required: true
-  },
-  charges: {
-    divisor:           { type: Number, default: 5000 },
-    minCharge:         { type: Number, default: 0 },
-    docketCharge:      { type: Number, default: 0 },
-    minWeight:         { type: Number, default: 0},
-    fuelPercent:       { type: Number, default: 0 },
-    rovCharge:         { type: NestedPercentMinSchema, required: false },
-    insuranceCharge:   { type: NestedPercentMinSchema, required: false },
-    greenTax:         { type: Number, default: 0 },
-    collectionCharge:   { type: Number, default: 0 },
-    codCharge: {
-      flat:    { type: Number, default: 0 },
-      percent: { type: Number, default: 0 }
-    },
-    odaCharge:         { type: OdaAppointmentSchema, required: false },
-    appointmentCharge: { type: OdaAppointmentSchema, required: false },
-    handlingCharge:    { type: ChargeBracketSchema, required: false },
-    fmCharge: {
-      perKg:    { type: Number, default: 0 },
-      perDocket:{ type: Number, default: 0 }
-    },
-    miscellaneous: {type: Number, default: 0}
   }
-}, { timestamps: true })
-
-export default mongoose.model("prices", RateCardSchema);
+}, { timestamps: true });
+export default mongoose.model("prices", pricesSchema);
