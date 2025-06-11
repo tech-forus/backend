@@ -4,7 +4,7 @@ import customerModel from "../model/customerModel.js";
 import jwt from "jsonwebtoken";
 import generatePassword from "generate-password";
 import nodemailer from "nodemailer";
-import twilio from 'twilio'
+import twilio from "twilio";
 import redisClient from "../utils/redisClient.js";
 
 dotenv.config();
@@ -21,7 +21,6 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
@@ -30,7 +29,7 @@ const pendingVerifications = new Map();
 
 const generateOTP = () => {
   const arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-  let otp = '';
+  let otp = "";
   for (let i = 0; i < 6; i++) {
     const ran = Math.floor(Math.random() * 10);
     otp += arr[ran];
@@ -53,29 +52,43 @@ export const initiateSignup = async (req, res) => {
       address,
       state,
       pincode,
-      pickupAddress
+      pickupAddress,
     } = req.body;
 
-    console.log("Initiate Signup Data:", req.body);
+    const required = {
+      firstName,
+      lastName,
+      email,
+      phone,
+      password,
+      companyName,
+      gstNumber,
+      businessType,
+      monthlyOrder,
+      address,
+      state,
+      pincode,
+    };
 
-    // Validate required fields
-    if (
-      !firstName || !lastName || !email || !phone || !password ||
-      !companyName || !gstNumber || !businessType || !monthlyOrder ||
-      !address || !state || !pincode
-    ) {
-      return res.status(400).json({ message: "Please provide all required fields." });
+    const missing = Object.entries(required)
+      .filter(
+        ([_, value]) => value === undefined || value === null || value === ""
+      )
+      .map(([key]) => key);
+
+    if (missing.length) {
+      return res
+        .status(400)
+        .json({
+          message: `Missing required field${
+            missing.length > 1 ? "s" : ""
+          }: ${missing.join(", ")}`,
+        });
     }
 
     // Check for duplicates
     const existingCustomer = await customerModel.findOne({
-      $or: [
-        { email },
-        { phone },
-        { companyName },
-        { gstNumber },
-        { address }
-      ]
+      $or: [{ email }, { phone }, { companyName }, { gstNumber }, { address }],
     });
 
     if (existingCustomer) {
@@ -96,6 +109,8 @@ export const initiateSignup = async (req, res) => {
         }))
       : [];
 
+    console.log("Processed Pickup Addresses:", pickupArray);
+
     // Store in Redis for verification later
     const redisPayload = {
       data: {
@@ -113,7 +128,7 @@ export const initiateSignup = async (req, res) => {
         pincode: Number(pincode),
         pickupAddress: pickupArray,
       },
-      otps: { emailOtp, phoneOtp }
+      otps: { emailOtp, phoneOtp },
     };
 
     await redisClient.setEx(
@@ -127,15 +142,15 @@ export const initiateSignup = async (req, res) => {
       from: "Forus Logistics <tech@foruselectric.com>",
       to: email,
       subject: "Email Verification - Forus Logistics",
-      html: `<p>Your email verification OTP is <strong>${emailOtp}</strong>. It will expire in 10 minutes.</p>`
+      html: `<p>Your email verification OTP is <strong>${emailOtp}</strong>. It will expire in 10 minutes.</p>`,
     });
 
     // TODO: Send phoneOtp via SMS provider
 
     return res.status(200).json({
-      message: "OTP sent to email and phone. Please verify to complete registration."
+      message:
+        "OTP sent to email and phone. Please verify to complete registration.",
     });
-
   } catch (error) {
     console.error("Initiate Signup Error:", error);
     return res.status(500).json({ message: "Server error." });
@@ -149,7 +164,9 @@ export const verifyOtpsAndSignup = async (req, res) => {
     const redisData = await redisClient.get(`pendingSignup:${email}`);
     console.log("Redis Data:", redisData);
     if (!redisData) {
-      return res.status(400).json({ message: "No pending verification found or expired." });
+      return res
+        .status(400)
+        .json({ message: "No pending verification found or expired." });
     }
 
     const { data, otps } = JSON.parse(redisData);
@@ -163,7 +180,7 @@ export const verifyOtpsAndSignup = async (req, res) => {
 
     const newCustomer = new customerModel({
       ...data,
-      password: hashedPassword
+      password: hashedPassword,
     });
 
     await newCustomer.save();
@@ -174,23 +191,24 @@ export const verifyOtpsAndSignup = async (req, res) => {
 
     return res.status(201).json({
       message: "Customer registered successfully after verification.",
-      customer: customerData
+      customer: customerData,
     });
-
   } catch (error) {
     console.error("Verification Signup Error:", error);
-    return res.status(500).json({ message: "Server error during verification." });
+    return res
+      .status(500)
+      .json({ message: "Server error during verification." });
   }
 };
-
-
 
 export const loginController = async (req, res) => {
   const { email, password } = req.body;
 
   // 1. Basic validation
   if (!email || !password) {
-    return res.status(400).json({ message: "Please provide email and password." });
+    return res
+      .status(400)
+      .json({ message: "Please provide email and password." });
   }
 
   if (!process.env.JWT_SECRET) {
@@ -230,8 +248,8 @@ export const loginController = async (req, res) => {
         state: customer.state,
         pincode: customer.pincode,
         pickupAddress: customer.pickupAddress,
-        tokenAvailable: customer.tokenAvailable
-      }
+        tokenAvailable: customer.tokenAvailable,
+      },
     };
 
     // 5. Sign the token
@@ -252,7 +270,6 @@ export const loginController = async (req, res) => {
         });
       }
     );
-
   } catch (error) {
     console.error("Login Error:", error);
     res.status(500).json({ message: "Server error during login." });
@@ -264,7 +281,9 @@ export const forgotPasswordController = async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ message: "Please provide your email address." });
+      return res
+        .status(400)
+        .json({ message: "Please provide your email address." });
     }
 
     const customer = await customerModel.findOne({
@@ -275,7 +294,8 @@ export const forgotPasswordController = async (req, res) => {
       console.log(`Forgot password attempt for non-existent email: ${email}`);
       return res.status(200).json({
         success: false,
-        message: "If an account with that email exists, a new password has been sent.",
+        message:
+          "If an account with that email exists, a new password has been sent.",
       });
     }
 
@@ -313,7 +333,9 @@ export const forgotPasswordController = async (req, res) => {
     });
   } catch (error) {
     console.error("Forgot Password Error:", error);
-    res.status(500).json({ message: "Server error during password reset process." });
+    res
+      .status(500)
+      .json({ message: "Server error during password reset process." });
   }
 };
 export const changePasswordController = async (req, res) => {
@@ -365,6 +387,8 @@ export const changePasswordController = async (req, res) => {
     });
   } catch (error) {
     console.error("Password Change Error:", error);
-    res.status(500).json({ message: "Server error during password change process." });
+    res
+      .status(500)
+      .json({ message: "Server error during password change process." });
   }
 };
