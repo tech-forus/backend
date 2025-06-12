@@ -148,6 +148,11 @@ const pricesSchema = new mongoose.Schema({
       required: true,
       default: 0
     },
+    daccCharges: {
+      type: Number,
+      required: true,
+      default: 0
+    },
     miscellanousCharges: {
       type: Number,
       required: true,

@@ -90,8 +90,9 @@ export const calculatePrice = async (req, res) => {
       const appointmentCharges = Math.max(priceData.priceRate.appointmentCharges.variable * chargeableWeight, priceData.priceRate.appointmentCharges.fixed);
       const minCHarges = priceData.priceRate.minCharges;
       const greenTax = priceData.priceRate.greenTax;
+      const daccCharges = priceData.priceRate.daccCharges;
       const miscellanousCharges = priceData.priceRate.miscellanousCharges;
-      const totalCharges = baseFreight + docketCharges + fuelSurcharge + rovCharges + inuaranceCharges + odaCharges + codCharges + prepaidCharges + topayCharges + handlingCharges + fmCharges + appointmentCharges + minCHarges + greenTax + miscellanousCharges;
+      const totalCharges = baseFreight + docketCharges + fuelSurcharge + rovCharges + inuaranceCharges + odaCharges + codCharges + prepaidCharges + topayCharges + handlingCharges + fmCharges + appointmentCharges + minCHarges + greenTax + daccCharges+ miscellanousCharges;
       return {
         transporterId: transporter._id,
         transporterName: transporter.companyName,
@@ -118,6 +119,7 @@ export const calculatePrice = async (req, res) => {
         appointmentCharges: appointmentCharges,
         minCHarges: minCHarges,
         greenTax: greenTax,
+        daccCharges: daccCharges,
         miscellanousCharges: miscellanousCharges,
         totalCharges: totalCharges
       };
