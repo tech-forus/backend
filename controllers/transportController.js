@@ -1,6 +1,6 @@
-import pincodeModel from "../model/pincodeModel.js";
 import priceModel from "../model/priceModel.js";
 import transporterModel from "../model/transporterModel.js";
+import usertransporterrelationshipModel from "../model/usertransporterrelationshipModel.js";
 //import customerpriceModel from "../model/customerpriceModel.js"
 
 export const calculatePrice = async (req, res) => {
@@ -15,6 +15,8 @@ export const calculatePrice = async (req, res) => {
     height,
     weight,
   } = req.body;
+
+  console.log(req.body);
 
   // 1) validate
   if (
@@ -40,16 +42,16 @@ export const calculatePrice = async (req, res) => {
     const transporterData = await transporterModel.find();
     const result = await Promise.all(transporterData.map(async (transporter) => {
       const fromZone = transporter.service.find(
-        (service) => service.pincode === fromPincode
+        (service) => service.pincode === Number(fromPincode)
       ).zone;
       const fromOda = transporter.service.find(
-        (service) => service.pincode === fromPincode
+        (service) => service.pincode === Number(fromPincode)
       ).isOda;
       const toZone = transporter.service.find(
-        (service) => service.pincode === toPincode
+        (service) => service.pincode === Number(toPincode)
       ).zone;
       const toOda = transporter.service.find(
-        (service) => service.pincode === toPincode
+        (service) => service.pincode === Number(toPincode)
       ).isOda;
       if(fromOda){
         return res.status(400).json({
@@ -138,3 +140,43 @@ export const calculatePrice = async (req, res) => {
     });
   }
 };
+
+export const addTiedUpCompany = async (req, res) => {
+  try {
+    const {companyName, docket, fuelSurcharge, fovCharge, collectionCharge, greenTax, handlingCharge, daccCharge, miscCharge, priceChart} = req.body;
+    if (!companyName || !docket || !fuelSurcharge || !fovCharge || !collectionCharge || !greenTax || !handlingCharge || !daccCharge || !miscCharge) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
+      });
+    }
+    const existingCompany = await usertransporterrelationshipModel.findOne({ companyName });
+    if (existingCompany) {
+      return res.status(400).json({
+        success: false,
+        message: "Company already exists",
+      });
+    }
+    const newCompany = new usertransporterrelationshipModel({
+      companyName,
+      prices: [{
+        docket,
+        fuelSurcharge,
+        fovCharge,
+        collectionCharge,
+        greenTax,
+        handlingCharge,
+        daccCharge,
+        miscCharge
+      }],
+      priceChart
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+
+}
