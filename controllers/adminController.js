@@ -3,31 +3,48 @@ import transporterModel from "../model/transporterModel.js";
 
 export const addTransporter = async (req, res) => {
   try {
-    const { companyName, service } = req.body;
+    const { companyName } = req.body;
+    let { servicableZone } = req.body;
 
-    if (!companyName || !Array.isArray(service)) {
-      return res.status(400).json({ message: "Invalid input data" });
+    // Parse servicableZone (JSON or CSV)
+    if (!servicableZone) {
+      return res.status(400).json({ message: 'servicableZone is required' });
+    }
+    if (typeof servicableZone === 'string') {
+      try { servicableZone = JSON.parse(servicableZone); }
+      catch {
+        servicableZone = servicableZone.split(',').map(z => z.trim());
+      }
+    }
+    if (!Array.isArray(servicableZone)) {
+      return res.status(400).json({ message: 'servicableZone must be an array' });
     }
 
-    const existingTransporter = await transporterModel.findOne({ companyName });
-    if (existingTransporter) {
-        return res.status(400).json({ message: "Transporter with this company name already exists" });
+    // Read and parse Excel file buffer into JSON
+    if (!req.file) {
+      return res.status(400).json({ message: 'serviceFile (Excel) is required' });
     }
-    
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const service = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    if (!service.length) {
+      return res.status(400).json({ message: 'Service sheet is empty or invalid' });
+    }
 
-    const newTransporter = new transporterModel({
-      companyName,
-      service,
-    });
+    // Check duplicates
+    if (await transporterModel.findOne({ companyName })) {
+      return res.status(400).json({ message: 'Transporter already exists' });
+    }
 
+    const newTransporter = new transporterModel({ companyName, servicableZone, service });
     await newTransporter.save();
-
-    res.status(201).json({ message: "Transporter saved successfully", data: newTransporter });
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(400).json({ message: "Company name already exists" });
+    res.status(201).json({ message: 'Transporter saved', data: newTransporter });
+  } catch (err) {
+    console.error(err);
+    if (err.code === 11000) {
+      return res.status(400).json({ message: 'Company name duplicate' });
     }
-    res.status(500).json({ message: "Server error", error: error.message });
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 

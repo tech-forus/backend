@@ -144,41 +144,106 @@ export const calculatePrice = async (req, res) => {
 };
 
 export const addTiedUpCompany = async (req, res) => {
+  console.log("REQ.BODY: ",req.body);
+  const { customerID, prices, priceChart } = req.body;
+  console.log("REQ.BODY: ",req.body);
+  const errors = [];
+
+  // 1) customerID
+  if (!customerID) {
+    errors.push("customerID is required");
+  }
+
+  // 2) prices array
+  if (!Array.isArray(prices) || prices.length === 0) {
+    errors.push("prices must be a non-empty array");
+  } else {
+    prices.forEach((p, i) => {
+      // transporterName
+      if (!p.transporterName || typeof p.transporterName !== "string") {
+        errors.push(`prices[${i}].transporterName is required and must be a string`);
+      }
+      // priceRate
+      const pr = p.priceRate;
+      if (!pr || typeof pr !== "object") {
+        errors.push(`prices[${i}].priceRate is required and must be an object`);
+        return;
+      }
+
+      // flat numeric fields ≥ 0
+      [ "minWeight", "docketCharges", "fuel", "minCharges", "greenTax", "daccCharges", "miscellanousCharges" ]
+        .forEach(field => {
+          if (typeof pr[field] !== "number") {
+            errors.push(`prices[${i}].priceRate.${field} must be a number`);
+          } else if (pr[field] < 0) {
+            errors.push(`prices[${i}].priceRate.${field} must be ≥ 0`);
+          }
+        });
+
+      // divisor ≥ 1
+      if (typeof pr.divisor !== "number") {
+        errors.push(`prices[${i}].priceRate.divisor must be a number`);
+      } else if (pr.divisor < 1) {
+        errors.push(`prices[${i}].priceRate.divisor must be ≥ 1`);
+      }
+
+      // nested charges objects
+      [
+        "rovCharges","inuaranceCharges","odaCharges","codCharges",
+        "prepaidCharges","topayCharges","handlingCharges",
+        "fmCharges","appointmentCharges"
+      ].forEach(pkg => {
+        const obj = pr[pkg];
+        if (!obj || typeof obj !== "object") {
+          errors.push(`prices[${i}].priceRate.${pkg} must be an object`);
+        } else {
+          ["variable","fixed"].forEach(side => {
+            if (typeof obj[side] !== "number") {
+              errors.push(`prices[${i}].priceRate.${pkg}.${side} must be a number`);
+            } else if (obj[side] < 0) {
+              errors.push(`prices[${i}].priceRate.${pkg}.${side} must be ≥ 0`);
+            }
+          });
+        }
+      });
+    });
+  }
+
+  // 3) priceChart
+  if (!priceChart || typeof priceChart !== "object") {
+    errors.push("priceChart is required and must be an object");
+  } else {
+    // Example check for one zone–zone; repeat as needed
+    if (
+      !priceChart.N1 ||
+      typeof priceChart.N1 !== "object" ||
+      typeof priceChart.N1.N1 !== "number"
+    ) {
+      errors.push("priceChart.N1.N1 must be a number");
+    }
+    // …add similar checks for all 14×14 zone values…
+  }
+
+  // If any errors, return them
+  if (errors.length) {
+    return res.status(422).json({ success: false, errors });
+  }
+
+  // All good—save!
   try {
-    const {companyName, docket, fuelSurcharge, fovCharge, collectionCharge, greenTax, handlingCharge, daccCharge, miscCharge, priceChart} = req.body;
-    if (!companyName || !docket || !fuelSurcharge || !fovCharge || !collectionCharge || !greenTax || !handlingCharge || !daccCharge || !miscCharge) {
+    const existingTransporter = await transporterModel.findOne({ companyName: prices[0].transporterName });
+    if (existingTransporter) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields",
+        message: "Transporter already exists",
       });
     }
-    const existingCompany = await usertransporterrelationshipModel.findOne({ companyName });
-    if (existingCompany) {
-      return res.status(400).json({
-        success: false,
-        message: "Company already exists",
-      });
-    }
-    const newCompany = new usertransporterrelationshipModel({
-      companyName,
-      prices: [{
-        docket,
-        fuelSurcharge,
-        fovCharge,
-        collectionCharge,
-        greenTax,
-        handlingCharge,
-        daccCharge,
-        miscCharge
-      }],
-      priceChart
-    });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    const doc = new usertransporterrelationshipModel(req.body);
+    const saved = await doc.save();
+    return res.status(201).json({ success: true, data: saved });
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ success: false, error: err.message });
   }
 
 }

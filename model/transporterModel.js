@@ -6,7 +6,11 @@ const transporterSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
-    service: [{
+    servicableZones: [{
+        type: String,
+        required: true
+    }],
+    service: {
         pincode: {
             type: Number,
             required: true
@@ -19,7 +23,7 @@ const transporterSchema = new mongoose.Schema({
             type: String,
             required: true
         }
-    }]
+    }
 }, {timestamps: true});
 
 export default mongoose.model("transporters", transporterSchema);
