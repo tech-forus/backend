@@ -6,12 +6,12 @@ const usertransporterrelationshipSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "customers",
     },
-    transporterName: {
-      type: String,
-      required: true,
-    },
     prices: [
       {
+        transporterId: {
+          type: String,
+          required: true,
+        },
         priceRate: {
           minWeight: {
             type: Number,
@@ -162,12 +162,12 @@ const usertransporterrelationshipSchema = new mongoose.Schema(
             default: 0,
           },
         },
-      },
-    ],
-    priceChart: {
-    }
-  },
-  { timestamps: true, strict: false}
+        priceChart: {
+          
+        }
+      }
+    ]
+  }, { timestamps: true, strict: false}
 );
 
 export default mongoose.model(

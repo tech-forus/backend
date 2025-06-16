@@ -29,12 +29,13 @@ export const addTransporter = async (req, res) => {
 
     // Upsert
     const cacheKey = `transporter:${companyName}`;
-    await redisClient.setEx(
+    const redisData = await redisClient.setEx(
       cacheKey,
-      JSON.stringify({ companyName, servicableZones, service }),
-      'EX',            // expire after a bit
-      60 * 60         // 1 hour
+      60 * 60,
+      JSON.stringify({ companyName, servicableZones, service })
     );
+
+    console.log("Redis data:", redisData);
 
     return res.json({ success: true, message: 'Transporter data cached, awaiting prices.' });
   } catch (err) {
@@ -45,11 +46,45 @@ export const addTransporter = async (req, res) => {
 
 export const addPrice = async (req, res) => {
   try {
-    
-  } catch (error) {
-    console.error("Error adding price:", error);
-    return res.status(500).json({ success: false, message: "Server error" });
-    
+    const { companyName, priceRate, zoneRates } = req.body;
+    if (!companyName || !priceRate || !zoneRates) {
+      return res.status(400).json({ success: false, message: 'Missing payload' });
+    }
+
+    // 1. fetch transporter data from Redis
+    const cacheKey = `transporter:${companyName}`;
+    const transporterJson = await redisClient.get(cacheKey);
+    if (!transporterJson) {
+      return res.status(404).json({ success: false, message: 'No transporter data in cache' });
+    }
+    const { servicableZones, service } = JSON.parse(transporterJson);
+
+    // 2. upsert into Mongo to get companyId
+    const transporter = await transporterModel.findOneAndUpdate(
+      { companyName },
+      { companyName, servicableZones, service },
+      { upsert: true, new: true }
+    );
+
+    // 3. create the Price doc
+    const priceDoc = new priceModel({
+      companyId: transporter._id,
+      priceRate,
+      zoneRates,        // Mongoose will cast this JS object into a Map<zone, ToZoneRatesSchema>
+    });
+    await priceDoc.save();
+
+    // 4. cleanup: remove from Redis if you don't need it any more
+    await redisClient.del(cacheKey);
+
+    res.json({
+      success: true,
+      message: 'Prices saved',
+      priceId: priceDoc._id
+    });
+  } catch (err) {
+    console.error('Error in /api/prices:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 }
 
