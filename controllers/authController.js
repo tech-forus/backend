@@ -25,8 +25,6 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
-const pendingVerifications = new Map();
-
 const generateOTP = () => {
   const arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
   let otp = "";

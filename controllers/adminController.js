@@ -1,52 +1,93 @@
 import priceModel from "../model/priceModel.js";
 import transporterModel from "../model/transporterModel.js";
+import xlsx from "xlsx";
+import path from 'path';
+// and to get __dirname in an ESM file:
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
+import redisClient from "../utils/redisClient.js";
 
 export const addTransporter = async (req, res) => {
   try {
-    const { companyName } = req.body;
-    let { servicableZone } = req.body;
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
-    // Parse servicableZone (JSON or CSV)
-    if (!servicableZone) {
-      return res.status(400).json({ message: 'servicableZone is required' });
-    }
-    if (typeof servicableZone === 'string') {
-      try { servicableZone = JSON.parse(servicableZone); }
-      catch {
-        servicableZone = servicableZone.split(',').map(z => z.trim());
-      }
-    }
-    if (!Array.isArray(servicableZone)) {
-      return res.status(400).json({ message: 'servicableZone must be an array' });
-    }
+    const companyName = req.body.transporter;
+    const servicableZones = JSON.parse(req.body.zones);
 
-    // Read and parse Excel file buffer into JSON
-    if (!req.file) {
-      return res.status(400).json({ message: 'serviceFile (Excel) is required' });
-    }
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const service = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-    if (!service.length) {
-      return res.status(400).json({ message: 'Service sheet is empty or invalid' });
-    }
+    // Parse from buffer instead of file path
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-    // Check duplicates
-    if (await transporterModel.findOne({ companyName })) {
-      return res.status(400).json({ message: 'Transporter already exists' });
-    }
+    const service = rows.map(row => ({
+      pincode: Number(row.pincode || row.Pincode),
+      isOda: String(row.isOda || row.ODA).toLowerCase() === 'true',
+      zone: String(row.zone || row.Zone || '')
+    }));
 
-    const newTransporter = new transporterModel({ companyName, servicableZone, service });
-    await newTransporter.save();
-    res.status(201).json({ message: 'Transporter saved', data: newTransporter });
+    // Upsert
+    const cacheKey = `transporter:${companyName}`;
+    await redisClient.setEx(
+      cacheKey,
+      JSON.stringify({ companyName, servicableZones, service }),
+      'EX',            // expire after a bit
+      60 * 60         // 1 hour
+    );
+
+    return res.json({ success: true, message: 'Transporter data cached, awaiting prices.' });
   } catch (err) {
     console.error(err);
-    if (err.code === 11000) {
-      return res.status(400).json({ message: 'Company name duplicate' });
-    }
-    res.status(500).json({ message: 'Server error', error: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
+
+export const addPrice = async (req, res) => {
+  try {
+    
+  } catch (error) {
+    console.error("Error adding price:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+    
+  }
+}
+
+export const getTransporters = async (req, res) => {
+  try {
+    const { transporter } = req.query;
+    const transporters = await transporterModel.find({companyName: transporter});
+    if (!transporters || transporters.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No transporters found",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: transporters,
+      message: "Transporters fetched successfully",
+    });
+  } catch (error) {
+    console.error("Error fetching transporters:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+}
+
+export const downloadTransporterTemplate = (req, res) => {
+   const filePath = path.join(__dirname, 'templates', 'pincodes_template.xlsx');
+
+  // res.download sets the right headers and streams the file
+  res.download(filePath, 'pincodes_template.xlsx', err => {
+    if (err) {
+      console.error('Download error:', err);
+      return res.status(500).json({ success: false, message: 'Could not download file.' });
+    }
+  });
+}
 
 export const addPincodeController = async (req, res) => {
   try {
