@@ -54,23 +54,12 @@ const customerSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
-  pickupAddress: [
-    {
-      address: {
-        type: String,
-        required: true,
-      },
-      state: {
-        type: String,
-        required: true,
-      },
-      pincode: {
-        type: Number,
-        required: true,
-      },
-    },
-  ],
-  tokenAvailable: {
+  isSubscribed:{
+    type:Boolean,
+    default: false,
+    required: true
+  },
+  tokenAvailable: { 
     type: Number,
     default: 10,
     required: true

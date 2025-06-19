@@ -49,8 +49,7 @@ export const initiateSignup = async (req, res) => {
       monthlyOrder,
       address,
       state,
-      pincode,
-      pickupAddress,
+      pincode
     } = req.body;
 
     const required = {
@@ -98,16 +97,7 @@ export const initiateSignup = async (req, res) => {
     const phoneOtp = generateOTP();
     console.log("Email OTP:", emailOtp, "| Phone OTP:", phoneOtp);
 
-    // Process pickup addresses
-    const pickupArray = Array.isArray(pickupAddress)
-      ? pickupAddress.map((a) => ({
-          address: a.address?.trim(),
-          state: a.state?.trim(),
-          pincode: Number(a.pincode),
-        }))
-      : [];
-
-    console.log("Processed Pickup Addresses:", pickupArray);
+  
 
     // Store in Redis for verification later
     const redisPayload = {
@@ -123,8 +113,7 @@ export const initiateSignup = async (req, res) => {
         monthlyOrder: Number(monthlyOrder),
         address: address.trim(),
         state: state.trim(),
-        pincode: Number(pincode),
-        pickupAddress: pickupArray,
+        pincode: Number(pincode)
       },
       otps: { emailOtp, phoneOtp },
     };
@@ -155,12 +144,13 @@ export const initiateSignup = async (req, res) => {
   }
 };
 
+
 export const verifyOtpsAndSignup = async (req, res) => {
   const { email, emailOtp, phoneOtp } = req.body;
 
   try {
     const redisData = await redisClient.get(`pendingSignup:${email}`);
-    console.log("Redis Data:", redisData);
+    //console.log("Redis Data:", redisData);
     if (!redisData) {
       return res
         .status(400)
@@ -233,7 +223,7 @@ export const loginController = async (req, res) => {
     // 4. Create JWT payload (include essential non-sensitive info)
     const payload = {
       customer: {
-        id: customer._id,
+        _id: customer._id,
         email: customer.email,
         phone: customer.phone,
         firstName: customer.firstName,
@@ -245,8 +235,8 @@ export const loginController = async (req, res) => {
         address: customer.address,
         state: customer.state,
         pincode: customer.pincode,
-        pickupAddress: customer.pickupAddress,
         tokenAvailable: customer.tokenAvailable,
+        isSubscribed: customer.isSubscribed
       },
     };
 

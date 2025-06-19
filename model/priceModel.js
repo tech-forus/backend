@@ -37,7 +37,7 @@ const pricesSchema = new mongoose.Schema({
         default: 0
       }
     },
-    inuaranceCharges: {
+    insuaranceCharges: {
       variable: {
         type: Number,
         required: true,

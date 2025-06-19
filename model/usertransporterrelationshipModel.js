@@ -5,12 +5,46 @@ const usertransporterrelationshipSchema = new mongoose.Schema(
     customerID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "customers",
+      required: true
     },
-    prices: [
+    transporterId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "transporters",
+      required: true,
+    },
+    prices: 
       {
-        transporterId: {
+        vendorCode:{
+          type:String,
+          required:true
+        },
+        vendorPhone: {
+          type: Number,
+          required: true
+        },
+        vendorEmail: {
           type: String,
-          required: true,
+          required: true
+        },
+        gstNo: {
+          type: String,
+          required: true
+        },
+        mode: {
+          type: String,
+          required: true
+        },
+        address: {
+          type: String,
+          required: true
+        },
+        state: {
+          type: String,
+          required: true
+        },
+        pincode: {
+          type: Number,
+          required: true
         },
         priceRate: {
           minWeight: {
@@ -40,7 +74,7 @@ const usertransporterrelationshipSchema = new mongoose.Schema(
               default: 0,
             },
           },
-          inuaranceCharges: {
+          insuaranceCharges: {
             variable: {
               type: Number,
               required: true,
@@ -166,7 +200,6 @@ const usertransporterrelationshipSchema = new mongoose.Schema(
           
         }
       }
-    ]
   }, { timestamps: true, strict: false}
 );
 

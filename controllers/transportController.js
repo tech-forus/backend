@@ -1,3 +1,4 @@
+import customerModel from "../model/customerModel.js";
 import priceModel from "../model/priceModel.js";
 import temporaryTransporterModel from "../model/temporaryTransporterModel.js";
 import transporterModel from "../model/transporterModel.js";
@@ -7,6 +8,8 @@ import XLSX from "xlsx";
 
 export const calculatePrice = async (req, res) => {
   const {
+    customerID,
+    userogpincode,
     modeoftransport,
     fromPincode,
     toPincode,
@@ -18,10 +21,9 @@ export const calculatePrice = async (req, res) => {
     weight,
   } = req.body;
 
-  console.log(req.body);
-
-  // 1) validate
   if (
+    !customerID ||
+    !userogpincode ||
     !modeoftransport ||
     !fromPincode ||
     !toPincode ||
@@ -39,62 +41,53 @@ export const calculatePrice = async (req, res) => {
   }
 
   try {
-    // 2) compute actual + volumetric weights
     const actualWeight = weight * noofboxes;
     const transporterData = await transporterModel.find();
-    const result = await Promise.all(transporterData.map(async (transporter) => {
-      const fromZone = transporter.service.find(
-        (service) => service.pincode === Number(fromPincode)
-      ).zone;
-      const fromOda = transporter.service.find(
-        (service) => service.pincode === Number(fromPincode)
-      ).isOda;
-      const toZone = transporter.service.find(
-        (service) => service.pincode === Number(toPincode)
-      ).zone;
-      const toOda = transporter.service.find(
-        (service) => service.pincode === Number(toPincode)
-      ).isOda;
-      if(fromOda){
-        return res.status(400).json({
-          success: false,
-          message: "Pickup service is not available for ODA pincode",
-        });
+    const tiedUpCompanies = await usertransporterrelationshipModel.find({ customerID });
+
+    const customerData = await customerModel.findOne({_id: customerID});
+    const isSubscribed = customerData.isSubscribed;
+
+    const result1 = await Promise.all(tiedUpCompanies.map(async (tuc) => {
+      const transporter = await transporterModel.findOne({ _id: tuc.transporterId });
+      const fromService = transporter.service.find((entry) => entry.pincode === fromPincode);
+      const toService = transporter.service.find((entry) => entry.pincode === toPincode);
+      const fromZone = fromService?.zone;
+      const toZone = toService?.zone;
+      const toOda = toService?.isOda;
+
+      if(!fromService || !toService || !fromZone || !toZone || fromOda || !toOda){
+        return;
       }
-      //console.log(fromZone, toZone);
-      const priceData = await priceModel.findOne({ companyId: transporter._id });
-      //console.log(priceData);
-      const unitPrice = priceData.zoneRates.get(fromZone)?.get(toZone);
-      console.log(fromZone, toZone);
-      console.log(unitPrice);
-      const volumetricWeight = (length * width * height) / priceData.priceRate.divisor;
+
+      const unitPrice = tuc.prices.priceChart[String(fromPincode)]?.[toZone] || 0;
+      const baseFreight = weight * unitPrice;
+      const volumetricWeight = (length * width * height) / tuc.prices.priceRate.divisor;
       const chargeableWeight = Math.max(actualWeight, volumetricWeight);
-      if(chargeableWeight < priceData.priceRate.minCharges) {
-        return res.status(400).json({
-          success: false,
-          message: "Chargeable weight is less than minimum charges",
-        });
-      }
-      const baseFreight = unitPrice * chargeableWeight;
-      const docketCharges = priceData.priceRate.docketCharges;
-      const fuelSurcharge = (priceData.priceRate.fuel/100)*baseFreight;
-      const rovCharges = Math.max(priceData.priceRate.rovCharges.variable * chargeableWeight, priceData.priceRate.rovCharges.fixed);
-      const inuaranceCharges = Math.max(priceData.priceRate.inuaranceCharges.variable * chargeableWeight, priceData.priceRate.inuaranceCharges.fixed);
-      let odaCharges = 0;
-      if(toOda){
-        odaCharges = Math.max(chargeableWeight/priceData.priceRate.odaCharges.variable, priceData.priceRate.odaCharges.fixed);
-      }
-      const codCharges = Math.max(priceData.priceRate.codCharges.variable * chargeableWeight, priceData.priceRate.codCharges.fixed);
-      const prepaidCharges = Math.max(priceData.priceRate.prepaidCharges.variable * chargeableWeight, priceData.priceRate.prepaidCharges.fixed);
-      const topayCharges = Math.max(priceData.priceRate.topayCharges.variable * chargeableWeight, priceData.priceRate.topayCharges.fixed);
-      const handlingCharges = Math.max(priceData.priceRate.handlingCharges.variable * chargeableWeight, priceData.priceRate.handlingCharges.fixed);
-      const fmCharges = Math.max(priceData.priceRate.fmCharges.variable * chargeableWeight, priceData.priceRate.fmCharges.fixed);
-      const appointmentCharges = Math.max(priceData.priceRate.appointmentCharges.variable * chargeableWeight, priceData.priceRate.appointmentCharges.fixed);
-      const minCHarges = priceData.priceRate.minCharges;
-      const greenTax = priceData.priceRate.greenTax;
-      const daccCharges = priceData.priceRate.daccCharges;
-      const miscellanousCharges = priceData.priceRate.miscellanousCharges;
-      const totalCharges = baseFreight + docketCharges + fuelSurcharge + rovCharges + inuaranceCharges + odaCharges + codCharges + prepaidCharges + topayCharges + handlingCharges + fmCharges + appointmentCharges + minCHarges + greenTax + daccCharges+ miscellanousCharges;
+
+      const charges = tuc.prices.priceRate;
+      //const getCharge = (charge) => Math.max((charge.variable/100) * chargeableWeight, charge.fixed);
+
+      //console.log(charges);
+
+      const docketCharges = charges.docketCharges;
+      const fuelSurcharge = ((charges.fuel / 100) * baseFreight);
+      const rovCharges = (Math.max((baseFreight*(charges.rovCharges.variable/100)), (charges.rovCharges.fixed)));
+      const insuaranceCharges = (Math.max((baseFreight*(charges.insuaranceCharges.variable/100)), (charges.insuaranceCharges.fixed)));
+      const odaCharges = toOda ? (Math.max(chargeableWeight*charges.odaCharges.variable, charges.odaCharges.fixed*noofboxes)) : 0;
+      const codCharges =( Math.max((chargeableWeight*(charges.codCharges.variable/100)), (charges.codCharges.fixed)));
+      const prepaidCharges = (Math.max((chargeableWeight*(charges.prepaidCharges.variable/100)), (charges.prepaidCharges.fixed)));
+      const topayCharges = (Math.max((chargeableWeight*(charges.topayCharges.variable/100)), (charges.topayCharges.fixed)));
+      const handlingCharges = chargeableWeight < 400 ? (chargeableWeight*charges.handlingCharges.variable) : (charges.handlingCharges.fixed*chargeableWeight);
+      const fmCharges = (Math.max(chargeableWeight*charges.fmCharges.variable, (charges.prepaidCharges.fixed * noofboxes)));
+      const appointmentCharges = (Math.max(chargeableWeight*charges.appointmentCharges.variable, (charges.appointmentCharges.fixed * noofboxes)));
+      const minCharges = (charges.minCharges);
+      const greenTax = (charges.greenTax);
+      const daccCharges = (charges.daccCharges);
+      const miscCharges = (charges.miscellanousCharges);
+
+      const totalCharges = Number((baseFreight + docketCharges + fuelSurcharge + rovCharges + insuaranceCharges + odaCharges + codCharges + prepaidCharges + topayCharges + handlingCharges + fmCharges + appointmentCharges + minCharges + greenTax + daccCharges + miscCharges)).toFixed(2);
+
       return {
         transporterId: transporter._id,
         transporterName: transporter.companyName,
@@ -102,39 +95,121 @@ export const calculatePrice = async (req, res) => {
         destinationPincode: toPincode,
         originZone: fromZone,
         destinationZone: toZone,
-        actualWeight: actualWeight,
-        volumetricWeight: volumetricWeight,
-        chargeableWeight: chargeableWeight,
-        unitPrice: unitPrice,
-        modeoftransport: modeoftransport,
-        baseFreight: baseFreight,
-        docketCharges: docketCharges,
-        fuelSurcharge: fuelSurcharge,
-        rovCharges: rovCharges,
-        inuaranceCharges: inuaranceCharges,
-        odaCharges: odaCharges,
-        codCharges: codCharges,
-        prepaidCharges: prepaidCharges,
-        topayCharges: topayCharges,
-        handlingCharges: handlingCharges,
-        fmCharges: fmCharges,
-        appointmentCharges: appointmentCharges,
-        minCHarges: minCHarges,
-        greenTax: greenTax,
-        daccCharges: daccCharges,
-        miscellanousCharges: miscellanousCharges,
-        totalCharges: totalCharges
+        actualWeight,
+        volumetricWeight,
+        chargeableWeight,
+        unitPrice,
+        modeoftransport,
+        baseFreight,
+        docketCharges,
+        fuelSurcharge,
+        rovCharges,
+        insuaranceCharges,
+        odaCharges,
+        codCharges,
+        prepaidCharges,
+        topayCharges,
+        handlingCharges,
+        fmCharges,
+        appointmentCharges,
+        minCharges,
+        greenTax,
+        daccCharges,
+        miscCharges,
+        totalCharges,
+        isHidden: false,
       };
-
-      // TODO: Calculate unitPrice based on priceData and zones
-      // Example placeholder logic:
-      // const unitPrice = priceData ? priceData.basePrice : 0;
-      // You can add further processing here as needed
     }));
+
+    const result2 = await Promise.all(transporterData.map(async (transporter) => {
+      const fromService = transporter.service.find(service => service.pincode === Number(fromPincode));
+      //console.log(transporter.companyName, fromService);
+      const toService = transporter.service.find(service => service.pincode === Number(toPincode));
+      //console.log(transporter.companyName, toService);
+
+      const fromZone = fromService?.zone;
+      const toZone = toService?.zone;
+      const fromOda = fromService?.isOda;
+      const toOda = toService?.isOda;
+
+      if(!fromService || !toService || !fromZone || !toZone || fromOda || !toOda){
+        return;
+      }
+
+      console.log(transporter.companyName, fromZone, toZone, fromOda, toOda);
+
+      const priceData = await priceModel.findOne({ companyId: transporter._id });
+      const unitPrice = priceData.zoneRates.get(fromZone)?.get(toZone) || 0;
+
+      const volumetricWeight = (length * width * height) / priceData.priceRate.divisor;
+      const chargeableWeight = Math.max(actualWeight, volumetricWeight);
+
+      const baseFreight = unitPrice * chargeableWeight;
+      const charges = priceData.priceRate;
+
+      const docketCharges = charges.docketCharges;
+      const fuelSurcharge = ((charges.fuel / 100) * baseFreight);
+      const rovCharges = (Math.max((baseFreight*(charges.rovCharges.variable/100)), (charges.rovCharges.fixed)));
+      const insuaranceCharges = (Math.max((baseFreight*(charges.insuaranceCharges.variable/100)), (charges.insuaranceCharges.fixed)));
+      const odaCharges = toOda ? (Math.max(chargeableWeight*charges.odaCharges.variable, charges.odaCharges.fixed*noofboxes)) : 0;
+      const codCharges =( Math.max((chargeableWeight*(charges.codCharges.variable/100)), (charges.codCharges.fixed)));
+      const prepaidCharges = (Math.max((chargeableWeight*(charges.prepaidCharges.variable/100)), (charges.prepaidCharges.fixed)));
+      const topayCharges = (Math.max((chargeableWeight*(charges.topayCharges.variable/100)), (charges.topayCharges.fixed)));
+      const handlingCharges = chargeableWeight < 400 ? (chargeableWeight*charges.handlingCharges.variable) : (charges.handlingCharges.fixed*chargeableWeight);
+      const fmCharges = (Math.max(chargeableWeight*charges.fmCharges.variable, (charges.prepaidCharges.fixed * noofboxes)));
+      const appointmentCharges = (Math.max(chargeableWeight*charges.appointmentCharges.variable, (charges.appointmentCharges.fixed * noofboxes)));
+      const minCharges = (charges.minCharges);
+      const greenTax = (charges.greenTax);
+      const daccCharges = (charges.daccCharges);
+      const miscCharges = (charges.miscellanousCharges);
+
+      const totalCharges = (Number(baseFreight + docketCharges + fuelSurcharge + rovCharges + insuaranceCharges + odaCharges + codCharges + prepaidCharges + topayCharges + handlingCharges + fmCharges + appointmentCharges + minCharges + greenTax + daccCharges + miscCharges)).toFixed(2);
+      if(isSubscribed){
+        return {
+        transporterId: transporter._id,
+        transporterName: transporter.companyName,
+        originPincode: fromPincode,
+        destinationPincode: toPincode,
+        originZone: fromZone,
+        destinationZone: toZone,
+        actualWeight,
+        volumetricWeight,
+        chargeableWeight,
+        unitPrice,
+        modeoftransport,
+        baseFreight,
+        docketCharges,
+        fuelSurcharge,
+        rovCharges,
+        insuaranceCharges,
+        odaCharges,
+        codCharges,
+        prepaidCharges,
+        topayCharges,
+        handlingCharges,
+        fmCharges,
+        appointmentCharges,
+        minCharges,
+        greenTax,
+        daccCharges,
+        miscCharges,
+        totalCharges,
+        isHidden: true,
+      };
+      }else{
+        return {
+          totalCharges,
+          isHidden: true,
+        };
+      }
+
+    }));
+
     return res.status(200).json({
       success: true,
       message: "Price calculated successfully",
-      data: result,
+      tiedUpResult: result1.filter(Boolean),
+      companyResult: result2.filter(Boolean)
     });
   } catch (err) {
     console.error(err);
@@ -147,8 +222,8 @@ export const calculatePrice = async (req, res) => {
 
 export const addTiedUpCompany = async (req, res) => {
   try {
-    const { customerID, companyName, priceRate:raw } = req.body;
-    if (customerID, companyName, raw, !req.file) {
+    const { customerID, vendorCode, vendorPhone, vendorEmail, gstNo, mode, address, state, pincode, companyName, priceRate, priceChart } = req.body;
+    if (!customerID,!vendorCode, !vendorPhone, !vendorEmail, !gstNo,!mode, !address, !state,!pincode, !companyName, !priceRate, !priceChart) {
       return res.status(400).json({
         success: false,
         message:
@@ -156,22 +231,23 @@ export const addTiedUpCompany = async (req, res) => {
       });
     }
 
-    const parsedRate = JSON.parse(raw);
-
-    const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-
-    const data = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
     //console.log(data);
     const companyId = await transporterModel.findOne({companyName: companyName});
     if (!companyId) {
       const tempData = new temporaryTransporterModel({
         customerID: customerID,
         companyName: companyName,
+        vendorCode: vendorCode,
+        vendorPhone: vendorPhone,
+        vendorEmail: vendorEmail,
+        gstNo: gstNo,
+        mode: mode,
+        address: address,
+        state: state,
+        pincode: pincode,
         prices:{
-          priceRate: parsedRate,
-          priceChart: data
+          priceRate: priceRate,
+          priceChart: priceChart
         }
       }).save();
       if(tempData){
@@ -181,13 +257,25 @@ export const addTiedUpCompany = async (req, res) => {
         });
       }
     }
-    const existing = await usertransporterrelationshipModel.findOne({customerID: customerID});
+    const existing = await usertransporterrelationshipModel.findOne({customerID: customerID, transporterId: companyId._id});
     if(existing){
       console.log(existing);
     }else{
       const newDoc = new usertransporterrelationshipModel({
         customerID: customerID,
-        prices: {transporterId: companyId._id, priceRate: parsedRate, priceChart: data}
+        transporterId: companyId._id,
+        prices: { 
+          vendorCode: vendorCode,
+          vendorPhone: vendorPhone,
+          vendorEmail: vendorEmail,
+          gstNo: gstNo,
+          mode: mode,
+          address: address,
+          state: state,
+          pincode: pincode,
+          priceRate: priceRate,
+          priceChart: priceChart
+        }
       });
       await newDoc.save();
     }
