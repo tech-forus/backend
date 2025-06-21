@@ -3,8 +3,22 @@ import priceModel from "../model/priceModel.js";
 import temporaryTransporterModel from "../model/temporaryTransporterModel.js";
 import transporterModel from "../model/transporterModel.js";
 import usertransporterrelationshipModel from "../model/usertransporterrelationshipModel.js";
-import XLSX from "xlsx";
-//import customerpriceModel from "../model/customerpriceModel.js"
+import dotenv from 'dotenv';
+import axios from 'axios';
+
+dotenv.config();
+
+const calculateDistanceBetweenPincode = async(origin, destination) =>{
+  try {
+    const response = await axios.get(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&key=${process.env.GOOGLE_MAP_API_KEY}`);
+    console.log(response.data.rows[0].elements[0].distance.value);
+    const estTime = ((response.data.rows[0].elements[0].distance.value)/400000).toFixed(2);
+    const distance = response.data.rows[0].elements[0].distance.text;
+    return {estTime: estTime, distance: distance};
+  } catch (error) {
+    console.log(error);
+  }
+}
 
 export const calculatePrice = async (req, res) => {
   const {
@@ -39,6 +53,9 @@ export const calculatePrice = async (req, res) => {
       message: "Missing required fields",
     });
   }
+  const distData = calculateDistanceBetweenPincode(fromPincode, toPincode);
+  const estTime = distData.estTime;
+  const dist = distData.distance;
 
   try {
     const actualWeight = weight * noofboxes;
@@ -62,7 +79,12 @@ export const calculatePrice = async (req, res) => {
 
       const unitPrice = tuc.prices.priceChart[String(fromPincode)]?.[toZone] || 0;
       const baseFreight = weight * unitPrice;
-      const volumetricWeight = (length * width * height) / tuc.prices.priceRate.divisor;
+      let volumetricWeight;
+      if(modeoftransport === 'Road'){
+        volumetricWeight = ((length * width * height) / 5000)*divisor;
+      }else{
+        volumetricWeight = ((length * width * height) / 4500)*divisor;
+      }
       const chargeableWeight = Math.max(actualWeight, volumetricWeight);
 
       const charges = tuc.prices.priceRate;
@@ -117,9 +139,14 @@ export const calculatePrice = async (req, res) => {
         daccCharges,
         miscCharges,
         totalCharges,
+        estimatedTime: estTime,
+        distance: dist,
         isHidden: false,
       };
     }));
+
+    //TODO: Calculate the distance between the pincode for estimated delivery time
+  
 
     const result2 = await Promise.all(transporterData.map(async (transporter) => {
       const fromService = transporter.service.find(service => service.pincode === Number(fromPincode));
@@ -194,6 +221,8 @@ export const calculatePrice = async (req, res) => {
         daccCharges,
         miscCharges,
         totalCharges,
+        estimatedTime: estTime,
+        distance: dist,
         isHidden: true,
       };
       }else{
@@ -291,3 +320,46 @@ export const addTiedUpCompany = async (req, res) => {
     });
   }
 };
+
+export const getTiedUpCompanies = async(req, res) => {
+  try {
+    const userid = await req.query;
+    console.log(userid)
+    const data = await usertransporterrelationshipModel.findOne({customerID: userid});
+    console.log(data);
+    return res.status(200).json({
+      success: true,
+      message: "Tied up companies fetched successfully",
+      data: data
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+}
+
+export const getTransporters = async(req, res) => {
+  try {
+    const { vendorName } = req.query;
+  if (!vendorName || vendorName.length < 1) return res.json([]);
+
+  const matches = await transporterModel.find({
+    companyName: { $regex: `^${vendorName}`, $options: 'i' }
+  })
+    .limit(10);
+
+  //console.log(matches);
+
+  return res.status(200).json(matches.map(v => v.companyName));
+
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+}

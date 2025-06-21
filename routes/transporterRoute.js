@@ -1,5 +1,5 @@
 import express from 'express';
-import { addTiedUpCompany, calculatePrice } from '../controllers/transportController.js';
+import { addTiedUpCompany, calculatePrice, getTiedUpCompanies, getTransporters } from '../controllers/transportController.js';
 import multer from "multer";
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -14,6 +14,8 @@ export const upload = multer({
 
 router.post('/calculate', protect, calculatePrice);
 router.post("/addtiedupcompanies", protect, upload.single('priceChart'), addTiedUpCompany);
+router.get("/gettiedupcompanies", protect, getTiedUpCompanies);
+router.get("/gettransporter", protect, getTransporters);
 //router.post('/addtiedupcompanies', addTiedUpCompanies);
 
 export default router;
