@@ -52,6 +52,8 @@ export const initiateSignup = async (req, res) => {
       pincode
     } = req.body;
 
+    console.log(req.body);
+
     const required = {
       firstName,
       lastName,
@@ -85,7 +87,7 @@ export const initiateSignup = async (req, res) => {
 
     // Check for duplicates
     const existingCustomer = await customerModel.findOne({
-      $or: [{ email }, { phone }, { companyName }, { gstNumber }, { address }],
+      $or: [{ email }, { phone }, { gstNumber }, { address }],
     });
 
     if (existingCustomer) {
@@ -156,6 +158,8 @@ export const verifyOtpsAndSignup = async (req, res) => {
         .status(400)
         .json({ message: "No pending verification found or expired." });
     }
+
+    console.log(redisData);
 
     const { data, otps } = JSON.parse(redisData);
 

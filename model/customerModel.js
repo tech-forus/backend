@@ -15,7 +15,7 @@ const customerSchema = new mongoose.Schema({
     unique: true,
   },
   phone:{
-    type:Number,
+    type: Number,
     required: true,
     unique: true
   },
@@ -25,8 +25,7 @@ const customerSchema = new mongoose.Schema({
   },
   companyName: {
     type: String,
-    required: true,
-    unique: true,
+    required: true
   },
   gstNumber: {
     type: String,

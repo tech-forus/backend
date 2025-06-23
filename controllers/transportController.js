@@ -11,9 +11,10 @@ dotenv.config();
 const calculateDistanceBetweenPincode = async(origin, destination) =>{
   try {
     const response = await axios.get(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&key=${process.env.GOOGLE_MAP_API_KEY}`);
-    console.log(response.data.rows[0].elements[0].distance.value);
+    //console.log(response.data.rows[0].elements[0].distance.value, response.data.rows[0].elements[0].distance.text);
     const estTime = ((response.data.rows[0].elements[0].distance.value)/400000).toFixed(2);
     const distance = response.data.rows[0].elements[0].distance.text;
+    //console.log(estTime, distance);
     return {estTime: estTime, distance: distance};
   } catch (error) {
     console.log(error);
@@ -53,45 +54,67 @@ export const calculatePrice = async (req, res) => {
       message: "Missing required fields",
     });
   }
-  const distData = calculateDistanceBetweenPincode(fromPincode, toPincode);
+
+  // Assuming calculateDistanceBetweenPincode is a safe function
+  const distData = await calculateDistanceBetweenPincode(fromPincode, toPincode);
+  //console.log(distData)
   const estTime = distData.estTime;
   const dist = distData.distance;
+  //console.log(estTime, dist)
 
   try {
     const actualWeight = weight * noofboxes;
     const transporterData = await transporterModel.find();
     const tiedUpCompanies = await usertransporterrelationshipModel.find({ customerID });
+    const customerData = await customerModel.findOne({ _id: customerID });
 
-    const customerData = await customerModel.findOne({_id: customerID});
+    // FIX: Added a check in case customer is not found
+    if (!customerData) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found.",
+      });
+    }
     const isSubscribed = customerData.isSubscribed;
 
     const result1 = await Promise.all(tiedUpCompanies.map(async (tuc) => {
+      if (!tuc.prices?.priceRate || !tuc.prices?.priceChart) {
+        return;
+      }
       const transporter = await transporterModel.findOne({ _id: tuc.transporterId });
-      const fromService = transporter.service.find((entry) => entry.pincode === fromPincode);
-      const toService = transporter.service.find((entry) => entry.pincode === toPincode);
-      const fromZone = fromService?.zone;
-      const toZone = toService?.zone;
-      const toOda = toService?.isOda;
-
-      if(!fromService || !toService || !fromZone || !toZone || fromOda || !toOda){
+      if (!transporter || !transporter.service) {
         return;
       }
 
-      const unitPrice = tuc.prices.priceChart[String(fromPincode)]?.[toZone] || 0;
-      const baseFreight = weight * unitPrice;
-      let volumetricWeight;
-      if(modeoftransport === 'Road'){
-        volumetricWeight = ((length * width * height) / 5000)*divisor;
-      }else{
-        volumetricWeight = ((length * width * height) / 4500)*divisor;
+      const fromService = transporter.service.find((entry) => String(entry.pincode) === fromPincode);
+      const toService = transporter.service.find((entry) => String(entry.pincode) === toPincode);
+
+      if (!fromService || !toService) {
+        return;
       }
+
+      const fromZone = fromService.zone;
+      const toZone = toService.zone;
+      const toOda = toService.isOda;
+
+      if (!fromZone || !toZone) {
+          return; 
+      }
+
+      const volumetricDivisor = tuc.prices.priceRate.divisor;
+      if (!volumetricDivisor) {
+        return;
+      }
+
+
+      const volumetricWeight = ((length * width * height) / volumetricDivisor) * noofboxes;
       const chargeableWeight = Math.max(actualWeight, volumetricWeight);
 
+      const unitPrice = tuc.prices.priceChart[String(fromPincode)]?.[toZone] || 0;
+      
+      const baseFreight = chargeableWeight * unitPrice;
+      
       const charges = tuc.prices.priceRate;
-      //const getCharge = (charge) => Math.max((charge.variable/100) * chargeableWeight, charge.fixed);
-
-      //console.log(charges);
-
       const docketCharges = charges.docketCharges;
       const fuelSurcharge = ((charges.fuel / 100) * baseFreight);
       const rovCharges = (Math.max((baseFreight*(charges.rovCharges.variable/100)), (charges.rovCharges.fixed)));
@@ -145,35 +168,40 @@ export const calculatePrice = async (req, res) => {
       };
     }));
 
-    //TODO: Calculate the distance between the pincode for estimated delivery time
-  
-
     const result2 = await Promise.all(transporterData.map(async (transporter) => {
-      const fromService = transporter.service.find(service => service.pincode === Number(fromPincode));
-      //console.log(transporter.companyName, fromService);
-      const toService = transporter.service.find(service => service.pincode === Number(toPincode));
-      //console.log(transporter.companyName, toService);
-
-      const fromZone = fromService?.zone;
-      const toZone = toService?.zone;
-      const fromOda = fromService?.isOda;
-      const toOda = toService?.isOda;
-
-      if(!fromService || !toService || !fromZone || !toZone || fromOda || !toOda){
+      if (!transporter.service) {
         return;
       }
 
-      console.log(transporter.companyName, fromZone, toZone, fromOda, toOda);
+      const fromService = transporter.service.find(service => String(service.pincode) === String(fromPincode));
+      const toService = transporter.service.find(service => String(service.pincode) === String(toPincode));
+
+      if (!fromService || !toService) {
+        return;
+      }
+      
+      const fromZone = fromService.zone;
+      const toZone = toService.zone;
+      const toOda = toService.isOda;
 
       const priceData = await priceModel.findOne({ companyId: transporter._id });
-      const unitPrice = priceData.zoneRates.get(fromZone)?.get(toZone) || 0;
 
-      const volumetricWeight = (length * width * height) / priceData.priceRate.divisor;
+      if (!priceData || !priceData.priceRate || !priceData.zoneRates) {
+        return;
+      }
+      
+      const volumetricDivisor = priceData.priceRate.divisor;
+      if (!volumetricDivisor) {
+        return; 
+      }
+
+      const volumetricWeight = ((length * width * height) / volumetricDivisor) * noofboxes;
       const chargeableWeight = Math.max(actualWeight, volumetricWeight);
 
+      const unitPrice = priceData.zoneRates.get(fromZone)?.get(toZone) || 0;
       const baseFreight = unitPrice * chargeableWeight;
       const charges = priceData.priceRate;
-
+      
       const docketCharges = charges.docketCharges;
       const fuelSurcharge = ((charges.fuel / 100) * baseFreight);
       const rovCharges = (Math.max((baseFreight*(charges.rovCharges.variable/100)), (charges.rovCharges.fixed)));
@@ -191,47 +219,47 @@ export const calculatePrice = async (req, res) => {
       const miscCharges = (charges.miscellanousCharges);
 
       const totalCharges = (Number(baseFreight + docketCharges + fuelSurcharge + rovCharges + insuaranceCharges + odaCharges + codCharges + prepaidCharges + topayCharges + handlingCharges + fmCharges + appointmentCharges + minCharges + greenTax + daccCharges + miscCharges)).toFixed(2);
-      if(isSubscribed){
+      
+      if (isSubscribed) {
         return {
-        transporterId: transporter._id,
-        transporterName: transporter.companyName,
-        originPincode: fromPincode,
-        destinationPincode: toPincode,
-        originZone: fromZone,
-        destinationZone: toZone,
-        actualWeight,
-        volumetricWeight,
-        chargeableWeight,
-        unitPrice,
-        modeoftransport,
-        baseFreight,
-        docketCharges,
-        fuelSurcharge,
-        rovCharges,
-        insuaranceCharges,
-        odaCharges,
-        codCharges,
-        prepaidCharges,
-        topayCharges,
-        handlingCharges,
-        fmCharges,
-        appointmentCharges,
-        minCharges,
-        greenTax,
-        daccCharges,
-        miscCharges,
-        totalCharges,
-        estimatedTime: estTime,
-        distance: dist,
-        isHidden: true,
-      };
-      }else{
+          transporterId: transporter._id,
+          transporterName: transporter.companyName,
+          originPincode: fromPincode,
+          destinationPincode: toPincode,
+          originZone: fromZone,
+          destinationZone: toZone,
+          actualWeight,
+          volumetricWeight,
+          chargeableWeight,
+          unitPrice,
+          modeoftransport,
+          baseFreight,
+          docketCharges,
+          fuelSurcharge,
+          rovCharges,
+          insuaranceCharges,
+          odaCharges,
+          codCharges,
+          prepaidCharges,
+          topayCharges,
+          handlingCharges,
+          fmCharges,
+          appointmentCharges,
+          minCharges,
+          greenTax,
+          daccCharges,
+          miscCharges,
+          totalCharges,
+          estimatedTime: estTime,
+          distance: dist,
+          isHidden: true,
+        };
+      } else {
         return {
           totalCharges,
           isHidden: true,
         };
       }
-
     }));
 
     return res.status(200).json({
@@ -241,10 +269,10 @@ export const calculatePrice = async (req, res) => {
       companyResult: result2.filter(Boolean)
     });
   } catch (err) {
-    console.error(err);
+    console.error("An error occurred in calculatePrice:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "An internal server error occurred.",
     });
   }
 };
