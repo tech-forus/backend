@@ -1,5 +1,5 @@
 import express from 'express';
-import { addTiedUpCompany, calculatePrice, getTiedUpCompanies, getTransporters } from '../controllers/transportController.js';
+import { addTiedUpCompany, calculatePrice, getPackingList, getTiedUpCompanies, getTransporters, savePckingList } from '../controllers/transportController.js';
 import multer from "multer";
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -16,6 +16,8 @@ router.post('/calculate', protect, calculatePrice);
 router.post("/addtiedupcompanies", protect, upload.single('priceChart'), addTiedUpCompany);
 router.get("/gettiedupcompanies", protect, getTiedUpCompanies);
 router.get("/gettransporter", protect, getTransporters);
+router.post("/savepackinglist", protect, savePckingList);
+router.get("/getpackinglist", protect, getPackingList);
 //router.post('/addtiedupcompanies', addTiedUpCompanies);
 
 export default router;

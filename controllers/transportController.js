@@ -5,6 +5,7 @@ import transporterModel from "../model/transporterModel.js";
 import usertransporterrelationshipModel from "../model/usertransporterrelationshipModel.js";
 import dotenv from 'dotenv';
 import axios from 'axios';
+import packingModel from "../model/packingModel.js";
 
 dotenv.config();
 
@@ -389,5 +390,50 @@ export const getTransporters = async(req, res) => {
       success: false,
       message: "Server error",
     });
+  }
+}
+
+export const savePckingList = async(req, res) => {
+  try {
+    const { customerId, name, modeoftransport, originPincode, destinationPincode, noofboxes, quantity, length, width, height , weight} = req.body;
+    if(!customerId || !name || !modeoftransport || !originPincode || !destinationPincode || !noofboxes || !quantity || !length || !width || !height || !weight){
+      return res.status(400).json({
+        success: false,
+        message: "Please fill all the fields",
+      });
+    }
+    const data = await new packingModel({customerId, name, modeoftransport, originPincode, destinationPincode, noofboxes, quantity, length, width, height , weight}).save();
+    if(data){
+      return res.status(200).json({
+        success: true,
+        message: "Packing list saved successfully",
+      });
+    }
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error"
+    })
+  }
+}
+
+export const getPackingList = async(req, res) => {
+  try {
+    const {customerId} = req.query;
+    const data = await packingModel.find({customerId: customerId});
+    if(data){
+      return res.status(200).json({
+        success: true,
+        message: "Packing list found successfully",
+        data: data
+      })
+    }
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error"
+    })
   }
 }
