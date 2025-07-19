@@ -165,7 +165,7 @@ export const verifyOtpsAndSignup = async (req, res) => {
 
     const { data, otps } = JSON.parse(redisData);
 
-    if (otps.emailOtp !== emailOtp) {
+    if (otps.emailOtp !== emailOtp || otps.phoneOtp !== phoneOtp) {
       return res.status(400).json({ message: "Invalid OTP(s)." });
     }
 

@@ -292,52 +292,58 @@ export const createBidding = async (req, res) => {
   }
 };
 
-
-
 export const getAvailableBiddings = async (req, res) => {
   try {
-    const {tid} = req.body;
-    const openBids = await biddingModel.find({bidType: 'open'});
-    const limitedBids = await biddingModel.find({
-      bidType: 'limited'
-    });
-    const arr = [];
-    const n = limitedBids.length;
-    for(let i = 0; i < n; i++) {
-      const bid = limitedBids[i];
-      if (bid.transporterIds.includes(tid)) {
-        arr.push(bid);
-      }
-    }
-    const semiLimitedBids = await biddingModel.find({
-      bidType: 'semi-limited'
-    });
-    const n2 = semiLimitedBids.length;
-    for(let i = 0; i < n2; i++) {
-      const bid = semiLimitedBids[i];
-      if (bid.transporterIds.includes(tid)) {
-        arr.push(bid);
-      }
-    }
+    const { tid } = req.body
+
+    // 1) Open bids (everyone sees these)
+    const openBids = await biddingModel
+      .find({ bidType: 'open' })
+      .populate({
+        path: 'userId',
+        model: 'customers',
+        select: 'firstName lastName companyName',
+      })
+
+    // 2) Limited bids (only if transporter is in transporterIds)
+    const limitedBids = await biddingModel
+      .find({
+        bidType: 'limited',
+        transporterIds: { $in: [tid] },
+      })
+      .populate({
+        path: 'userId',
+        model: 'customers',
+        select: 'firstName lastName companyName',
+      })
+
+    // 3) Semi‑limited bids (same filter)
+    const semiLimitedBids = await biddingModel
+      .find({
+        bidType: 'semi-limited',
+        transporterIds: { $in: [tid] },
+      })
+      .populate({
+        path: 'userId',
+        model: 'customers',
+        select: 'firstName lastName companyName',
+      })
 
     return res.status(200).json({
       success: true,
       message: 'Available bids fetched successfully',
-      data: {
-        openBids,
-        arr
-      } 
-    });
-
+      data: { openBids, limitedBids, semiLimitedBids },
+    })
   } catch (error) {
-    console.error('Error fetching available bids:', error);
-    return res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching available bids:', error)
+    return res.status(500).json({ success: false, message: 'Server error' })
   }
-};
+}
+
 
 export const placeBid = async (req, res) => {
   try {
-    const { biddingId }    = req.params;
+    const { biddingId } = req.params;
     const { transporterId, bidAmount } = req.body;
 
     // 1) validate IDs
@@ -369,8 +375,15 @@ export const placeBid = async (req, res) => {
       });
     }
 
-    // 5) record the transporter’s bid
-    //    avoid duplicate bidder entries
+    // 5) enforce maximum of 3 bids per transporter
+    const existingCount = bidDoc.bids.filter(b => b.transporter.equals(transporterId)).length;
+    if (existingCount >= 3) {
+      return res.status(400).json({
+        message: "You have already placed the maximum of 3 bids for this auction."
+      });
+    }
+
+    // 6) record the transporter’s bid (avoid duplicate bidder entries)
     if (!bidDoc.bidders.some(id => id.equals(transporterId))) {
       bidDoc.bidders.push(transporterId);
     }
@@ -379,7 +392,7 @@ export const placeBid = async (req, res) => {
       amount:      bidAmount
     });
 
-    // 6) update the current lowest bid
+    // 7) update the current lowest bid
     bidDoc.bidAmount = bidAmount;
 
     await bidDoc.save();
@@ -400,27 +413,52 @@ export const placeBid = async (req, res) => {
 
 export const getBiddingDetails = async (req, res) => {
   try {
-    const { biddingId } = req.params;
+    const { biddingId } = req.params
+    console.log('Fetching details for biddingId:', biddingId)
 
     // 1) validate ID
     if (!mongoose.Types.ObjectId.isValid(biddingId)) {
-      return res.status(400).json({ message: "Invalid biddingId" });
+      return res.status(400).json({ success: false, message: 'Invalid biddingId' })
     }
 
-    // 2) fetch the bidding
-    const bidDoc = await biddingModel.findById(biddingId);
+    // 2) fetch + populate
+    const bidDoc = await biddingModel
+      .findById(biddingId)
+      .populate({
+        path: 'userId',           // the field on biddingModel
+        model: 'customers',       // your actual customer model name
+        select: 'firstName lastName email companyName', 
+      })
+      .populate({
+        path: 'bids.transporter',
+        model: 'transporters',
+        select: 'companyName rating',
+      })
+      .populate({
+        path: 'bidders',
+        model: 'transporters',
+        select: 'companyName rating',
+      })
+      .lean()
+
     if (!bidDoc) {
-      return res.status(404).json({ message: "Bidding not found" });
+      return res.status(404).json({ success: false, message: 'Bidding not found' })
     }
-  }
-  catch (error) {
-    console.error("Error fetching bidding details:", error);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Bidding details fetched successfully',
+      data: bidDoc,
+    })
+  } catch (error) {
+    console.error('Error fetching bidding details:', error)
     return res.status(500).json({
-      message: "Server error",
-      error: error.message
-    });
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    })
   }
-};
+}
 
 export const getBiddingByUser = async (req, res) => {
   try {

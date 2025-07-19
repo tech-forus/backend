@@ -169,56 +169,67 @@ export const downloadTransporterTemplate = (req, res) => {
   });
 }
 
-export const transporterLogin = async(req, res) => {
+export const transporterLogin = async (req, res) => {
   try {
-    const {email, password} = req.body;
-    if(!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are missing'});
-    }
-    const findData = await transporterModel.findOne({email: email});
-
-    if(!findData){
-      return res.status(400).json({ success: false, message: 'Email not found'});
+    const { email, password } = req.body
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Email and password are missing' })
     }
 
-    const match = bcrypt.compare(password, findData.password);
-    if(!match){
-      return res.status(400).json({ success: false, message: 'Password is incorrect'});
+    const findData = await transporterModel.findOne({ email: email.toLowerCase() })
+    if (!findData) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Email not found' })
+    }
+
+    const match = await bcrypt.compare(password, findData.password)
+    if (!match) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Password is incorrect' })
     }
 
     const jwtPayload = {
-      id: findData._id,
+      _id: findData._id,
       email: findData.email,
       phone: findData.phone,
       companyName: findData.companyName,
       isAdmin: findData.isAdmin,
       isTransporter: findData.isTransporter,
     }
-    
-    jwt.sign(
-          jwtPayload,
-          process.env.JWT_SECRET,
-          { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
-          (err, token) => {
-            if (err) throw err;
-    
-            const transporterData = { ...findData._doc };
-            delete transporterData.password; // Remove password from response
-    
-            return res.status(200).json({
-              message: "Login successful!",
-              token,
-              customer: transporterData,
-            });
-          }
-        );
 
+    jwt.sign(
+      jwtPayload,
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' },
+      (err, token) => {
+        if (err) {
+          console.error('JWT sign error', err)
+          return res
+            .status(500)
+            .json({ success: false, message: 'Could not sign token' })
+        }
+
+        // Remove password before sending user back
+        const transporterData = findData.toObject()
+        delete transporterData.password
+
+        return res.status(200).json({
+          success: true,
+          message: 'Login successful!',
+          token,
+          transporter: transporterData,
+        })
+      }
+    )
   } catch (error) {
-    console.error("Error during transporter login:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error('Error during transporter login:', error)
+    return res
+      .status(500)
+      .json({ success: false, message: 'Server error' })
   }
 }
 

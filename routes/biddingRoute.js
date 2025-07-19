@@ -4,7 +4,7 @@ import { createBidding, getAvailableBiddings, getBiddingByUser, getBiddingDetail
 const router = express.Router();
 
 router.post('/addbid', createBidding);
-router.get('/getbids', getAvailableBiddings);
+router.post('/getbids', getAvailableBiddings);
 router.post("/:biddingId/bid", placeBid);
 router.get("/details/:biddingId", getBiddingDetails);
 router.get("/user/:userId", getBiddingByUser);
