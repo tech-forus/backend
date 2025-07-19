@@ -16,12 +16,7 @@ const PORT = process.env.PORT || 8000;
 
 // ─── MIDDLEWARE ─────────────────────────────────────────────────────────────
 app.use(morgan("dev"));
-app.use(
-  cors({
-    origin: 'http://localhost:3000',  // your React dev‐server
-    credentials: true,                // <- this is critical
-  })
-);
+app.use(cors());
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
