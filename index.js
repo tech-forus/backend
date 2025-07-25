@@ -15,7 +15,7 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 
 // ─── CORS SETUP ───────────────────────────────────────────────────────────────
-const allowedOrigins = ['https://peaceful-halva-d8c713.netlify.app'];
+const allowedOrigins = ['https://peaceful-halva-d8c713.netlify.app', 'https://freightcompare.netlify.app'];
 
 app.use(cors({
   origin: function (origin, callback) {
