@@ -1,9 +1,8 @@
 import express from 'express';
-import { addTiedUpCompany, calculatePrice, getAllTransporters, getPackingList, getTiedUpCompanies, getTransporters, getTrasnporterDetails, savePckingList } from '../controllers/transportController.js';
+import { addTiedUpCompany, calculatePrice, getAllTransporters, getPackingList, getTiedUpCompanies, getTransporters, getTrasnporterDetails, savePckingList, deletePackingList } from '../controllers/transportController.js';
 import multer from "multer";
 import { protect } from '../middleware/authMiddleware.js';
 import { addPrice, addTransporter, downloadTransporterTemplate, transporterLogin } from '../controllers/transporterAuth.js';
-
 const router = express.Router();
 
 const storage = multer.memoryStorage();
@@ -28,5 +27,5 @@ router.post("/savepackinglist", protect, savePckingList);
 router.get("/getpackinglist", protect, getPackingList);
 router.get("/gettransporterdetails/:id", getTrasnporterDetails);
 //router.post('/addtiedupcompanies', addTiedUpCompanies);
-
+router.delete('/deletepackinglist/:id', protect, deletePackingList);
 export default router;
