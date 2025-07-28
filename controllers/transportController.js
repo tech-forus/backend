@@ -7,6 +7,24 @@ import dotenv from 'dotenv';
 import axios from 'axios';
 import packingModel from "../model/packingModel.js";
 import ratingModel from "../model/ratingModel.js";
+import PackingList from '../model/packingModel.js'; // Make sure model is imported
+
+export const deletePackingList = async (req, res) => {
+  try {
+    const preset = await PackingList.findById(req.params.id);
+
+    if (!preset) {
+      return res.status(404).json({ message: 'Preset not found' });
+    }
+
+    await preset.deleteOne();
+
+    res.status(200).json({ message: 'Preset deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting preset:', error);
+    res.status(500).json({ message: 'Server error while deleting preset.' });
+  }
+};
 
 dotenv.config();
 
