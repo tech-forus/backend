@@ -3,44 +3,46 @@ import priceModel from "../model/priceModel.js";
 import temporaryTransporterModel from "../model/temporaryTransporterModel.js";
 import transporterModel from "../model/transporterModel.js";
 import usertransporterrelationshipModel from "../model/usertransporterrelationshipModel.js";
-import dotenv from 'dotenv';
-import axios from 'axios';
+import dotenv from "dotenv";
+import axios from "axios";
 import packingModel from "../model/packingModel.js";
 import ratingModel from "../model/ratingModel.js";
-import PackingList from '../model/packingModel.js'; // Make sure model is imported
+import PackingList from "../model/packingModel.js"; // Make sure model is imported
+
+dotenv.config();
 
 export const deletePackingList = async (req, res) => {
   try {
     const preset = await PackingList.findById(req.params.id);
 
     if (!preset) {
-      return res.status(404).json({ message: 'Preset not found' });
+      return res.status(404).json({ message: "Preset not found" });
     }
 
     await preset.deleteOne();
 
-    res.status(200).json({ message: 'Preset deleted successfully' });
+    res.status(200).json({ message: "Preset deleted successfully" });
   } catch (error) {
-    console.error('Error deleting preset:', error);
-    res.status(500).json({ message: 'Server error while deleting preset.' });
+    console.error("Error deleting preset:", error);
+    res.status(500).json({ message: "Server error while deleting preset." });
   }
 };
 
-dotenv.config();
-
-const calculateDistanceBetweenPincode = async(origin, destination) =>{
+const calculateDistanceBetweenPincode = async (origin, destination) => {
   try {
-    const response = await axios.get(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&key=${process.env.GOOGLE_MAP_API_KEY}`);
-    //console.log(response.data.rows[0].elements[0].distance.value, response.data.rows[0].elements[0].distance.text);
-    const estTime = ((response.data.rows[0].elements[0].distance.value)/400000).toFixed(2);
+    const response = await axios.get(
+      `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&key=${process.env.GOOGLE_MAP_API_KEY}`
+    );
+    const estTime = (
+      response.data.rows[0].elements[0].distance.value / 400000
+    ).toFixed(2);
     const distance = response.data.rows[0].elements[0].distance.text;
-    //console.log(estTime, distance);
-    return {estTime: estTime, distance: distance};
+    return { estTime: estTime, distance: distance };
   } catch (error) {
     console.log(error);
+    return { estTime: "0", distance: "0 km" };
   }
-}
-
+};
 
 export const calculatePrice = async (req, res) => {
   const {
@@ -54,7 +56,25 @@ export const calculatePrice = async (req, res) => {
     width,
     height,
     weight,
+    shipment_details,
   } = req.body;
+
+  let actualWeight;
+  if (Array.isArray(shipment_details) && shipment_details.length > 0) {
+    actualWeight = shipment_details.reduce(
+      (sum, b) => sum + (b.weight || 0) * (b.count || 0),
+      0
+    );
+  } else {
+    actualWeight = (weight || 0) * (noofboxes || 0);
+  }
+
+  const hasLegacy =
+    noofboxes !== undefined &&
+    length !== undefined &&
+    width !== undefined &&
+    height !== undefined &&
+    weight !== undefined;
 
   if (
     !customerID ||
@@ -62,15 +82,12 @@ export const calculatePrice = async (req, res) => {
     !modeoftransport ||
     !fromPincode ||
     !toPincode ||
-    !noofboxes ||
-    !length ||
-    !width ||
-    !height ||
-    !weight
+    (!(Array.isArray(shipment_details) && shipment_details.length > 0) && !hasLegacy)
   ) {
     return res.status(400).json({
       success: false,
-      message: "Missing required fields",
+      message:
+        "Missing required fields. Provide shipment_details or legacy weight/box parameters.",
     });
   }
 
@@ -82,7 +99,6 @@ export const calculatePrice = async (req, res) => {
   const dist = distData.distance;
 
   try {
-    const actualWeight = weight * noofboxes;
     const tiedUpCompanies = await usertransporterrelationshipModel.find({
       customerID,
     });
@@ -94,35 +110,37 @@ export const calculatePrice = async (req, res) => {
       tiedUpCompanies.map(async (tuc) => {
         const doesExist = tuc.prices.priceChart[fromPincode];
         if (!doesExist) return null;
-
         const transporter = await transporterModel.findById(tuc.transporterId);
         const matchedService = transporter.service.find(
           (entry) => entry.pincode === Number(fromPincode)
         );
         if (!matchedService || matchedService.isOda) return null;
-
         const matchedDest = transporter.service.find(
           (entry) => entry.pincode === Number(toPincode)
         );
         if (!matchedDest) return null;
-
         const destZone = matchedDest.zone;
         const destIsOda = matchedDest.isOda;
         const unitPrice = tuc.prices.priceChart[fromPincode][destZone];
         if (!unitPrice) return null;
-
-        // volumetric weight
-        let volumetricWeight =
-          (length * width * height) /
-          (modeoftransport === "Road" ? 4500 : 4750);
-        volumetricWeight = (
-          volumetricWeight * tuc.prices.priceRate.divisor
-        ).toFixed(2);
+        const pr = tuc.prices.priceRate || {};
+        const kFactor = pr.kFactor ?? pr.divisor ?? 5000;
+        
+        // --- MODIFIED: Volumetric weight calculation with Math.ceil() ---
+        let volumetricWeight = 0;
+        if (Array.isArray(shipment_details) && shipment_details.length > 0) {
+          volumetricWeight = shipment_details.reduce((sum, item) => {
+            const volWeightForItem = ((item.length || 0) * (item.width || 0) * (item.height || 0) * (item.count || 0)) / kFactor;
+            // Round UP for each item type before adding to the sum
+            return sum + Math.ceil(volWeightForItem);
+          }, 0);
+        } else {
+          const volWeightForLegacy = ((length || 0) * (width || 0) * (height || 0) * (noofboxes || 0)) / kFactor;
+          volumetricWeight = Math.ceil(volWeightForLegacy);
+        }
 
         const chargeableWeight = Math.max(volumetricWeight, actualWeight);
         const baseFreight = unitPrice * chargeableWeight;
-
-        const pr = tuc.prices.priceRate;
         const docketCharge = pr.docketCharges;
         const minCharges = pr.minCharges;
         const greenTax = pr.greenTax;
@@ -151,7 +169,6 @@ export const calculatePrice = async (req, res) => {
           (pr.appointmentCharges.variable / 100) * baseFreight,
           pr.appointmentCharges.fixed
         );
-
         const totalCharges =
           baseFreight +
           docketCharge +
@@ -166,9 +183,7 @@ export const calculatePrice = async (req, res) => {
           handlingCharges +
           fmCharges +
           appointmentCharges;
-
         l1 = Math.min(l1, totalCharges);
-
         return {
           companyId: transporter._id,
           companyName: transporter.companyName,
@@ -176,7 +191,9 @@ export const calculatePrice = async (req, res) => {
           destinationPincode: toPincode,
           estimatedTime: estTime,
           distance: dist,
-          chargeableWeight,
+          actualWeight: parseFloat(actualWeight.toFixed(2)),
+          volumetricWeight: parseFloat(volumetricWeight.toFixed(2)),
+          chargeableWeight: parseFloat(chargeableWeight.toFixed(2)),
           unitPrice,
           baseFreight,
           docketCharge,
@@ -198,9 +215,12 @@ export const calculatePrice = async (req, res) => {
     );
     const tiedUpResult = tiedUpRaw.filter((r) => r);
 
-    // Build public transporter results, skip zero-price
+    // Build public transporter results
     const transporterRaw = await Promise.all(
       transporterData.map(async (data) => {
+        
+        console.log(`\n--- [CHECKING] Transporter: ${data.companyName} ---`);
+
         const customerData = await customerModel.findOne({ _id: customerID });
         if (!customerData) return null;
         const isSubscribed = customerData.isSubscribed;
@@ -208,32 +228,55 @@ export const calculatePrice = async (req, res) => {
         const matchedOrigin = data.service.find(
           (entry) => entry.pincode === Number(fromPincode)
         );
-        if (!matchedOrigin || matchedOrigin.isOda) return null;
+        if (!matchedOrigin || matchedOrigin.isOda) {
+          console.log(`-> [REJECTED] Reason: Origin pincode ${fromPincode} is not serviceable or is ODA.`);
+          return null;
+        }
 
         const matchedDest = data.service.find(
           (entry) => entry.pincode === Number(toPincode)
         );
-        if (!matchedDest) return null;
+        if (!matchedDest) {
+          console.log(`-> [REJECTED] Reason: Destination pincode ${toPincode} is not serviceable.`);
+          return null;
+        }
 
         const originZone = matchedOrigin.zone;
         const destZone = matchedDest.zone;
         const destOda = matchedDest.isOda;
 
         const priceData = await priceModel.findOne({ companyId: data._id });
-        const pr = priceData.priceRate;
+        if (!priceData) {
+          console.log(`-> [REJECTED] Reason: No price document found in the database.`);
+          return null;
+        }
+        
+        const pr = priceData.priceRate || {};
         const priceChart = priceData.zoneRates;
         const unitPrice = priceChart.get(originZone)?.[destZone];
-        if (!unitPrice) return null;
 
-        // volumetric weight
-        let volumetricWeight =
-          (length * width * height) /
-          (modeoftransport === "Road" ? 4500 : 4750);
-        volumetricWeight = (volumetricWeight * pr.divisor).toFixed(2);
+        if (!unitPrice) {
+          console.log(`-> [REJECTED] Reason: No unit price found for route between zone ${originZone} and ${destZone}.`);
+          return null;
+        }
 
+        const kFactor = pr.kFactor ?? pr.divisor ?? 5000;
+        
+        // --- MODIFIED: Volumetric weight calculation with Math.ceil() ---
+        let volumetricWeight = 0;
+        if (Array.isArray(shipment_details) && shipment_details.length > 0) {
+          volumetricWeight = shipment_details.reduce((sum, item) => {
+            const volWeightForItem = ((item.length || 0) * (item.width || 0) * (item.height || 0) * (item.count || 0)) / kFactor;
+            // Round UP for each item type before adding to the sum
+            return sum + Math.ceil(volWeightForItem);
+          }, 0);
+        } else {
+          const volWeightForLegacy = ((length || 0) * (width || 0) * (height || 0) * (noofboxes || 0)) / kFactor;
+          volumetricWeight = Math.ceil(volWeightForLegacy);
+        }
+        
         const chargeableWeight = Math.max(volumetricWeight, actualWeight);
         const baseFreight = unitPrice * chargeableWeight;
-
         const docketCharge = pr.docketCharges;
         const minCharges = pr.minCharges;
         const greenTax = pr.greenTax;
@@ -262,7 +305,6 @@ export const calculatePrice = async (req, res) => {
           (pr.appointmentCharges.variable / 100) * baseFreight,
           pr.appointmentCharges.fixed
         );
-
         const totalCharges =
           baseFreight +
           docketCharge +
@@ -278,6 +320,8 @@ export const calculatePrice = async (req, res) => {
           fmCharges +
           appointmentCharges;
 
+        console.log(`-> [SUCCESS] Quote calculated. Chargeable Weight: ${chargeableWeight.toFixed(2)}kg, Total: ${totalCharges.toFixed(2)}`);
+
         if (l1 < totalCharges) return null;
         if (!isSubscribed) {
           return { totalCharges, isHidden: true };
@@ -290,7 +334,9 @@ export const calculatePrice = async (req, res) => {
           destinationPincode: toPincode,
           estimatedTime: estTime,
           distance: dist,
-          chargeableWeight,
+          actualWeight: parseFloat(actualWeight.toFixed(2)),
+          volumetricWeight: parseFloat(volumetricWeight.toFixed(2)),
+          chargeableWeight: parseFloat(chargeableWeight.toFixed(2)),
           unitPrice,
           baseFreight,
           docketCharge,
@@ -327,11 +373,38 @@ export const calculatePrice = async (req, res) => {
   }
 };
 
-
 export const addTiedUpCompany = async (req, res) => {
   try {
-    const { customerID, vendorCode, vendorPhone, vendorEmail, gstNo, mode, address, state, pincode, rating, companyName, priceRate, priceChart } = req.body;
-    if (!customerID,!vendorCode, !vendorPhone, !vendorEmail, !gstNo,!mode, !address, !state,!pincode, !rating, !companyName, !priceRate, !priceChart) {
+    const {
+      customerID,
+      vendorCode,
+      vendorPhone,
+      vendorEmail,
+      gstNo,
+      mode,
+      address,
+      state,
+      pincode,
+      rating,
+      companyName,
+      priceRate,
+      priceChart,
+    } = req.body;
+    if (
+      (!customerID,
+      !vendorCode,
+      !vendorPhone,
+      !vendorEmail,
+      !gstNo,
+      !mode,
+      !address,
+      !state,
+      !pincode,
+      !rating,
+      !companyName,
+      !priceRate,
+      !priceChart)
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -339,8 +412,7 @@ export const addTiedUpCompany = async (req, res) => {
       });
     }
 
-    //console.log(data);
-    const companyId = await transporterModel.findOne({companyName: companyName});
+    const companyId = await transporterModel.findOne({ companyName: companyName });
     if (!companyId) {
       const tempData = new temporaryTransporterModel({
         customerID: customerID,
@@ -353,58 +425,58 @@ export const addTiedUpCompany = async (req, res) => {
         address: address,
         state: state,
         pincode: pincode,
-        prices:{
+        prices: {
           priceRate: priceRate,
-          priceChart: priceChart
-        }
+          priceChart: priceChart,
+        },
       }).save();
-      if(tempData){
+      if (tempData) {
         return res.status(201).json({
           success: true,
           message: "Company added for verification",
         });
       }
     }
-    
-      const newDoc = new usertransporterrelationshipModel({
-        customerID: customerID,
-        transporterId: companyId._id,
-        prices: { 
-          vendorCode: vendorCode,
-          vendorPhone: vendorPhone,
-          vendorEmail: vendorEmail,
-          gstNo: gstNo,
-          mode: mode,
-          address: address,
-          state: state,
-          pincode: pincode,
-          priceRate: priceRate,
-          priceChart: priceChart
-        }
-      });
-      await newDoc.save();
-    
-      const ratingData = await ratingModel.findOne({companyId: companyId._id });
-      if(!ratingData){
-        const ratingPayload = {
-          companyId: companyId._id,
-          sum: rating,
-          noofreviews: 1,
-          rating: rating
-        }
-        const data = await new ratingModel(ratingPayload).save();
-      }else{
-        let ratingSum = ratingData.sum;
-        let ratingReviews = ratingData.noofreviews;
-        ratingSum += rating;
-        ratingReviews += 1;
-        const newRating = ratingSum/ratingReviews;
 
-        ratingData.sum = ratingSum;
-        ratingData.noofreviews = ratingReviews;
-        ratingData.rating = newRating;
-        await ratingData.save();
-      }
+    const newDoc = new usertransporterrelationshipModel({
+      customerID: customerID,
+      transporterId: companyId._id,
+      prices: {
+        vendorCode: vendorCode,
+        vendorPhone: vendorPhone,
+        vendorEmail: vendorEmail,
+        gstNo: gstNo,
+        mode: mode,
+        address: address,
+        state: state,
+        pincode: pincode,
+        priceRate: priceRate,
+        priceChart: priceChart,
+      },
+    });
+    await newDoc.save();
+
+    const ratingData = await ratingModel.findOne({ companyId: companyId._id });
+    if (!ratingData) {
+      const ratingPayload = {
+        companyId: companyId._id,
+        sum: rating,
+        noofreviews: 1,
+        rating: rating,
+      };
+      const data = await new ratingModel(ratingPayload).save();
+    } else {
+      let ratingSum = ratingData.sum;
+      let ratingReviews = ratingData.noofreviews;
+      ratingSum += rating;
+      ratingReviews += 1;
+      const newRating = ratingSum / ratingReviews;
+
+      ratingData.sum = ratingSum;
+      ratingData.noofreviews = ratingReviews;
+      ratingData.rating = newRating;
+      await ratingData.save();
+    }
 
     return res.status(200).json({
       success: true,
@@ -419,16 +491,16 @@ export const addTiedUpCompany = async (req, res) => {
   }
 };
 
-export const getTiedUpCompanies = async(req, res) => {
+export const getTiedUpCompanies = async (req, res) => {
   try {
     const userid = await req.query;
-    //console.log(userid)
-    const data = await usertransporterrelationshipModel.findOne({customerID: userid});
-    //console.log(data);
+    const data = await usertransporterrelationshipModel.findOne({
+      customerID: userid,
+    });
     return res.status(200).json({
       success: true,
       message: "Tied up companies fetched successfully",
-      data: data
+      data: data,
     });
   } catch (error) {
     console.error(error);
@@ -437,28 +509,31 @@ export const getTiedUpCompanies = async(req, res) => {
       message: "Server error",
     });
   }
-}
+};
 
-export const getTransporters = async(req, res) => {
+export const getTransporters = async (req, res) => {
   try {
     const { search } = req.query;
-    if (!search || typeof search !== 'string' || !search.trim()) {
+    if (!search || typeof search !== "string" || !search.trim()) {
       return res.status(400).json([]);
     }
-    const regex = new RegExp('^' + search, 'i');
-    const companies = await transporterModel.find({ companyName: { $regex: regex } })
+    const regex = new RegExp("^" + search, "i");
+    const companies = await transporterModel
+      .find({ companyName: { $regex: regex } })
       .limit(10)
-      .select('companyName');
-    res.json(companies.map(c => c.companyName));
+      .select("companyName");
+    res.json(companies.map((c) => c.companyName));
   } catch (err) {
-    console.error('Fetch companies error:', err);
+    console.error("Fetch companies error:", err);
     res.status(500).json([]);
   }
-}
+};
 
-export const getAllTransporters = async(req, res) => {
+export const getAllTransporters = async (req, res) => {
   try {
-    const transporters = await transporterModel.find().select("-password -servicableZones -service");
+    const transporters = await transporterModel.find().select(
+      "-password -servicableZones -service"
+    );
     if (transporters.length === 0) {
       return res.status(404).json({
         success: false,
@@ -477,19 +552,53 @@ export const getAllTransporters = async(req, res) => {
       message: "Server error",
     });
   }
-}
+};
 
-export const savePckingList = async(req, res) => {
+export const savePckingList = async (req, res) => {
   try {
-    const { customerId, name, modeoftransport, originPincode, destinationPincode, noofboxes, quantity, length, width, height , weight} = req.body;
-    if(!customerId || !name || !modeoftransport || !originPincode || !destinationPincode || !noofboxes || !length || !width || !height || !weight){
+    const {
+      customerId,
+      name,
+      modeoftransport,
+      originPincode,
+      destinationPincode,
+      noofboxes,
+      quantity,
+      length,
+      width,
+      height,
+      weight,
+    } = req.body;
+    if (
+      !customerId ||
+      !name ||
+      !modeoftransport ||
+      !originPincode ||
+      !destinationPincode ||
+      !noofboxes ||
+      !length ||
+      !width ||
+      !height ||
+      !weight
+    ) {
       return res.status(400).json({
         success: false,
         message: "Please fill all the fields",
       });
     }
-    const data = await new packingModel({customerId, name, modeoftransport, originPincode, destinationPincode, noofboxes, length, width, height , weight}).save();
-    if(data){
+    const data = await new packingModel({
+      customerId,
+      name,
+      modeoftransport,
+      originPincode,
+      destinationPincode,
+      noofboxes,
+      length,
+      width,
+      height,
+      weight,
+    }).save();
+    if (data) {
       return res.status(200).json({
         success: true,
         message: "Packing list saved successfully",
@@ -499,53 +608,53 @@ export const savePckingList = async(req, res) => {
     console.log(error);
     return res.status(500).json({
       success: false,
-      message: "Server Error"
-    })
+      message: "Server Error",
+    });
   }
-}
+};
 
-export const getPackingList = async(req, res) => {
+export const getPackingList = async (req, res) => {
   try {
-    const {customerId} = req.query;
-    //console.log(customerId);
-    const data = await packingModel.find({customerId});
-    if(data){
+    const { customerId } = req.query;
+    const data = await packingModel.find({ customerId });
+    if (data) {
       return res.status(200).json({
         success: true,
         message: "Packing list found successfully",
-        data: data
-      })
-    }
-    else{
+        data: data,
+      });
+    } else {
       return res.status(404).json({
         success: false,
-        message: "Packing list not found"
-      })
+        message: "Packing list not found",
+      });
     }
   } catch (error) {
     console.log(error);
     return res.status(500).json({
       success: false,
-      message: "Server Error"
-    })
+      message: "Server Error",
+    });
   }
-}
+};
 
-export const getTrasnporterDetails = async(req, res) => {
+export const getTrasnporterDetails = async (req, res) => {
   try {
-    const {id} = req.params;
-    const details = await transporterModel.findOne({_id: id}).select("-password -servicableZones -service");
-    if(details){
+    const { id } = req.params;
+    const details = await transporterModel
+      .findOne({ _id: id })
+      .select("-password -servicableZones -service");
+    if (details) {
       return res.status(200).json({
         success: true,
-        data: details
-      })
+        data: details,
+      });
     }
   } catch (error) {
     console.log(error);
     return res.status(500).json({
       success: true,
-      message: "Server Error"
-    })
+      message: "Server Error",
+    });
   }
-}
+};
