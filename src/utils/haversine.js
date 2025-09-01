@@ -22,4 +22,4 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-module.exports = haversineDistanceKm;
+export default haversineDistanceKm;

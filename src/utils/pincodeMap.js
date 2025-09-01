@@ -1,7 +1,11 @@
 // backend-main/backend-main/src/utils/pincodeMap.js
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // 1. Resolve the path to pincode_centroids.json
 const JSON_PATH = path.join(__dirname, "../../data/pincode_centroids.json");
@@ -22,4 +26,4 @@ rawCentroids.forEach((entry) => {
   }
 });
 
-module.exports = pinMap;
+export default pinMap;

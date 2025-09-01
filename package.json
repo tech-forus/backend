@@ -1,9 +1,14 @@
 {
+  "name": "tester-backend",
+  "version": "1.0.0",
   "type": "module",
+  "main": "index.js",
+  "engines": { "node": ">=20" },
   "dependencies": {
     "@prisma/client": "^6.11.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
     "dot": "^1.1.3",
     "dotenv": "^16.5.0",
     "env": "^0.0.2",
@@ -13,6 +18,7 @@
     "mongoose": "^8.15.1",
     "morgan": "^1.10.0",
     "multer": "^2.0.1",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.3",
     "pincode-distance": "^1.0.2",
     "redis": "^5.5.6",
@@ -20,6 +26,14 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "migrate": "node scripts/migratePriceKFactor.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "migrate": "node scripts/migratePriceKFactor.js",
+    "upload-freight-rates": "node scripts/uploadFreightRates.js",
+    "upload-wheelseye-pricing": "node scripts/uploadWheelseyePricing.js",
+    "test-wheelseye-pricing": "node scripts/testWheelseyePricing.js",
+    "test-freight-rates": "node scripts/testFreightRate.js",
+    "test-integration": "node scripts/testIntegration.js",
+    "check-vendors": "node scripts/checkVendors.js"
   }
 }

@@ -8,6 +8,8 @@ import axios from "axios";
 import packingModel from "../model/packingModel.js";
 import ratingModel from "../model/ratingModel.js";
 import PackingList from "../model/packingModel.js"; // Make sure model is imported
+import haversineDistanceKm from '../src/utils/haversine.js';
+import pinMap from '../src/utils/pincodeMap.js';
 
 dotenv.config();
 
@@ -39,8 +41,39 @@ const calculateDistanceBetweenPincode = async (origin, destination) => {
     const distance = response.data.rows[0].elements[0].distance.text;
     return { estTime: estTime, distance: distance };
   } catch (error) {
-    console.log(error);
-    return { estTime: "0", distance: "0 km" };
+    console.log("Google Maps API failed, using pincode coordinates fallback:", error.message);
+    
+    // Fallback to pincode coordinates calculation
+    try {
+      const originStr = String(origin);
+      const destStr = String(destination);
+      
+      const originCoords = pinMap[originStr];
+      const destCoords = pinMap[destStr];
+      
+      if (!originCoords || !destCoords) {
+        console.warn(`Pincode coordinates not found for ${originStr} or ${destStr}`);
+        return { estTime: "1", distance: "100 km" }; // Safe fallback
+      }
+      
+      const distanceKm = haversineDistanceKm(
+        originCoords.lat,
+        originCoords.lng,
+        destCoords.lat,
+        destCoords.lng
+      );
+      
+      const estTime = Math.max(1, Math.ceil(distanceKm / 400));
+      
+      return {
+        estTime: estTime.toString(),
+        distance: `${Math.round(distanceKm)} km`
+      };
+      
+    } catch (fallbackError) {
+      console.error("Fallback distance calculation also failed:", fallbackError);
+      return { estTime: "1", distance: "100 km" }; // Safe fallback
+    }
   }
 };
 
