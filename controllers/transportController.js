@@ -8,8 +8,8 @@ import axios from "axios";
 import packingModel from "../model/packingModel.js";
 import ratingModel from "../model/ratingModel.js";
 import PackingList from "../model/packingModel.js"; // Make sure model is imported
-import haversineDistanceKm from '../src/utils/haversine.js';
-import pinMap from '../src/utils/pincodeMap.js';
+import haversineDistanceKm from "../src/utils/haversine.js";
+import pinMap from "../src/utils/pincodeMap.js";
 
 dotenv.config();
 
@@ -20,7 +20,6 @@ function getUnitPriceFromChart(zoneRates, originZone, destZone) {
     const row = zoneRates.get(originZone);
     return row ? row[destZone] : undefined;
   }
-  // Plain object fallback
   const row = zoneRates[originZone];
   return row ? row[destZone] : undefined;
 }
@@ -28,13 +27,8 @@ function getUnitPriceFromChart(zoneRates, originZone, destZone) {
 export const deletePackingList = async (req, res) => {
   try {
     const preset = await PackingList.findById(req.params.id);
-
-    if (!preset) {
-      return res.status(404).json({ message: "Preset not found" });
-    }
-
+    if (!preset) return res.status(404).json({ message: "Preset not found" });
     await preset.deleteOne();
-
     res.status(200).json({ message: "Preset deleted successfully" });
   } catch (error) {
     console.error("Error deleting preset:", error);
@@ -53,38 +47,32 @@ const calculateDistanceBetweenPincode = async (origin, destination) => {
     const distance = response.data.rows[0].elements[0].distance.text;
     return { estTime: estTime, distance: distance };
   } catch (error) {
-    console.log("Google Maps API failed, using pincode coordinates fallback:", error.message);
-    
-    // Fallback to pincode coordinates calculation
+    console.log(
+      "Google Maps API failed, using pincode coordinates fallback:",
+      error.message
+    );
     try {
       const originStr = String(origin);
       const destStr = String(destination);
-      
       const originCoords = pinMap[originStr];
       const destCoords = pinMap[destStr];
-      
       if (!originCoords || !destCoords) {
-        console.warn(`Pincode coordinates not found for ${originStr} or ${destStr}`);
-        return { estTime: "1", distance: "100 km" }; // Safe fallback
+        console.warn(
+          `Pincode coordinates not found for ${originStr} or ${destStr}`
+        );
+        return { estTime: "1", distance: "100 km" };
       }
-      
       const distanceKm = haversineDistanceKm(
         originCoords.lat,
         originCoords.lng,
         destCoords.lat,
         destCoords.lng
       );
-      
       const estTime = Math.max(1, Math.ceil(distanceKm / 400));
-      
-      return {
-        estTime: estTime.toString(),
-        distance: `${Math.round(distanceKm)} km`
-      };
-      
+      return { estTime: estTime.toString(), distance: `${Math.round(distanceKm)} km` };
     } catch (fallbackError) {
       console.error("Fallback distance calculation also failed:", fallbackError);
-      return { estTime: "1", distance: "100 km" }; // Safe fallback
+      return { estTime: "1", distance: "100 km" };
     }
   }
 };
@@ -153,7 +141,7 @@ export const calculatePrice = async (req, res) => {
     console.time(`[${rid}] DB tiedUpCompanies`);
     const tiedUpCompanies = await usertransporterrelationshipModel
       .find({ customerID })
-      .select("customerID transporterId prices") // only what we use
+      .select("customerID transporterId prices")
       .lean()
       .maxTimeMS(20000);
     console.timeEnd(`[${rid}] DB tiedUpCompanies`);
@@ -171,7 +159,6 @@ export const calculatePrice = async (req, res) => {
     }
     const isSubscribed = !!customerData.isSubscribed;
 
-    // Fetch *only* transporters that service both pincodes and only keep those two service entries
     console.time(`[${rid}] DB transporters`);
     const transporterData = await transporterModel
       .aggregate([
@@ -188,7 +175,6 @@ export const calculatePrice = async (req, res) => {
         {
           $project: {
             companyName: 1,
-            // Keep only the two relevant service rows to cut payload
             service: {
               $filter: {
                 input: "$service",
@@ -209,13 +195,27 @@ export const calculatePrice = async (req, res) => {
     console.timeEnd(`[${rid}] DB transporters`);
     console.log(`[${rid}] candidate transporters: ${transporterData.length}`);
 
+    // NEW: batch fetch all price docs in one go (replaces N x findOne)
+    const ids = transporterData.map((t) => t._id);
+    console.time(`[${rid}] DB priceModel batch`);
+    const priceDocs = await priceModel
+      .find({ companyId: { $in: ids } })
+      .select("companyId priceRate zoneRates")
+      .lean()
+      .maxTimeMS(15000);
+    console.timeEnd(`[${rid}] DB priceModel batch`);
+    console.log(`[${rid}] priceDocs fetched: ${priceDocs.length}`);
+
+    const priceById = new Map(
+      priceDocs.map((d) => [String(d.companyId), d])
+    );
+
     let l1 = Number.MAX_SAFE_INTEGER;
 
-    // ── Tied-up companies (usually small set) ────────────────────────────────
+    // ── Tied-up companies (unchanged path; usually small) ────────────────────
     console.time(`[${rid}] BUILD tiedUpResult`);
     const tiedUpRaw = await Promise.all(
       tiedUpCompanies.map(async (tuc) => {
-        // Fetch only needed fields from transporter
         console.time(`[${rid}] DB transporterById ${tuc.transporterId}`);
         const transporter = await transporterModel
           .findById(tuc.transporterId)
@@ -228,10 +228,10 @@ export const calculatePrice = async (req, res) => {
         const doesExist = tuc.prices?.priceChart?.[fromPincode];
         if (!doesExist) return null;
 
-        const matchedService = transporter.service?.find(
+        const matchedOrigin = transporter.service?.find(
           (entry) => entry.pincode === fromPin
         );
-        if (!matchedService || matchedService.isOda) return null;
+        if (!matchedOrigin || matchedOrigin.isOda) return null;
 
         const matchedDest = transporter.service?.find(
           (entry) => entry.pincode === toPin
@@ -246,58 +246,61 @@ export const calculatePrice = async (req, res) => {
         const pr = tuc.prices.priceRate || {};
         const kFactor = pr.kFactor ?? pr.divisor ?? 5000;
 
-        // Volumetric weight (ceil per item)
         let volumetricWeight = 0;
         if (Array.isArray(shipment_details) && shipment_details.length > 0) {
           volumetricWeight = shipment_details.reduce((sum, item) => {
-            const volWeightForItem =
+            const v =
               ((item.length || 0) *
                 (item.width || 0) *
                 (item.height || 0) *
                 (item.count || 0)) /
               kFactor;
-            return sum + Math.ceil(volWeightForItem);
+            return sum + Math.ceil(v);
           }, 0);
         } else {
-          const volWeightForLegacy =
-            ((length || 0) *
-              (width || 0) *
-              (height || 0) *
-              (noofboxes || 0)) /
+          const v =
+            ((length || 0) * (width || 0) * (height || 0) * (noofboxes || 0)) /
             kFactor;
-          volumetricWeight = Math.ceil(volWeightForLegacy);
+          volumetricWeight = Math.ceil(v);
         }
 
         const chargeableWeight = Math.max(volumetricWeight, actualWeight);
         const baseFreight = unitPrice * chargeableWeight;
-        const docketCharge = pr.docketCharges || 0;
-        const minCharges = pr.minCharges || 0;
-        const greenTax = pr.greenTax || 0;
-        const daccCharges = pr.daccCharges || 0;
-        const miscCharges = pr.miscellanousCharges || 0;
-        const fuelCharges = ((pr.fuel || 0) / 100) * baseFreight;
+        const docketCharge = tuc.prices?.priceRate?.docketCharges || 0;
+        const minCharges = tuc.prices?.priceRate?.minCharges || 0;
+        const greenTax = tuc.prices?.priceRate?.greenTax || 0;
+        const daccCharges = tuc.prices?.priceRate?.daccCharges || 0;
+        const miscCharges = tuc.prices?.priceRate?.miscellanousCharges || 0;
+        const fuelCharges =
+          ((tuc.prices?.priceRate?.fuel || 0) / 100) * baseFreight;
         const rovCharges = Math.max(
-          ((pr.rovCharges?.variable || 0) / 100) * baseFreight,
-          pr.rovCharges?.fixed || 0
+          (((tuc.prices?.priceRate?.rovCharges?.variable || 0) / 100) *
+            baseFreight),
+          tuc.prices?.priceRate?.rovCharges?.fixed || 0
         );
         const insuaranceCharges = Math.max(
-          ((pr.insuaranceCharges?.variable || 0) / 100) * baseFreight,
-          pr.insuaranceCharges?.fixed || 0
+          (((tuc.prices?.priceRate?.insuaranceCharges?.variable || 0) / 100) *
+            baseFreight),
+          tuc.prices?.priceRate?.insuaranceCharges?.fixed || 0
         );
         const odaCharges = destIsOda
-          ? (pr.odaCharges?.fixed || 0) +
-            chargeableWeight * ((pr.odaCharges?.variable || 0) / 100)
+          ? (tuc.prices?.priceRate?.odaCharges?.fixed || 0) +
+            chargeableWeight *
+              ((tuc.prices?.priceRate?.odaCharges?.variable || 0) / 100)
           : 0;
         const handlingCharges =
-          (pr.handlingCharges?.fixed || 0) +
-          chargeableWeight * ((pr.handlingCharges?.variable || 0) / 100);
+          (tuc.prices?.priceRate?.handlingCharges?.fixed || 0) +
+          chargeableWeight *
+            ((tuc.prices?.priceRate?.handlingCharges?.variable || 0) / 100);
         const fmCharges = Math.max(
-          ((pr.fmCharges?.variable || 0) / 100) * baseFreight,
-          pr.fmCharges?.fixed || 0
+          (((tuc.prices?.priceRate?.fmCharges?.variable || 0) / 100) *
+            baseFreight),
+          tuc.prices?.priceRate?.fmCharges?.fixed || 0
         );
         const appointmentCharges = Math.max(
-          ((pr.appointmentCharges?.variable || 0) / 100) * baseFreight,
-          pr.appointmentCharges?.fixed || 0
+          (((tuc.prices?.priceRate?.appointmentCharges?.variable || 0) / 100) *
+            baseFreight),
+          tuc.prices?.priceRate?.appointmentCharges?.fixed || 0
         );
 
         const totalCharges =
@@ -350,13 +353,12 @@ export const calculatePrice = async (req, res) => {
     console.timeEnd(`[${rid}] BUILD tiedUpResult`);
     console.log(`[${rid}] tiedUpResult count: ${tiedUpResult.length}`);
 
-    // ── Public transporter results ───────────────────────────────────────────
+    // ── Public transporter results (now using batch price docs) ──────────────
     console.time(`[${rid}] BUILD transporterResult`);
     const transporterRaw = await Promise.all(
       transporterData.map(async (data) => {
         console.log(`\n--- [CHECKING] Transporter: ${data.companyName} ---`);
 
-        // Using filtered service array (only origin/dest entries)
         const matchedOrigin = data.service?.find(
           (entry) => entry.pincode === fromPin
         );
@@ -381,14 +383,7 @@ export const calculatePrice = async (req, res) => {
         const destZone = matchedDest.zone;
         const destOda = matchedDest.isOda;
 
-        // Price doc per transporter (project only required fields)
-        console.time(`[${rid}] DB priceModel ${data._id}`);
-        const priceData = await priceModel
-          .findOne({ companyId: data._id })
-          .select("priceRate zoneRates")
-          .lean()
-          .maxTimeMS(15000);
-        console.timeEnd(`[${rid}] DB priceModel ${data._id}`);
+        const priceData = priceById.get(String(data._id));
         if (!priceData) {
           console.log(
             `-> [REJECTED] Reason: No price document found in the database.`
@@ -397,8 +392,11 @@ export const calculatePrice = async (req, res) => {
         }
 
         const pr = priceData.priceRate || {};
-        const unitPrice = getUnitPriceFromChart(priceData.zoneRates, originZone, destZone);
-
+        const unitPrice = getUnitPriceFromChart(
+          priceData.zoneRates,
+          originZone,
+          destZone
+        );
         if (!unitPrice) {
           console.log(
             `-> [REJECTED] Reason: No unit price found for route between zone ${originZone} and ${destZone}.`
@@ -408,26 +406,22 @@ export const calculatePrice = async (req, res) => {
 
         const kFactor = pr.kFactor ?? pr.divisor ?? 5000;
 
-        // Volumetric weight (ceil per item)
         let volumetricWeight = 0;
         if (Array.isArray(shipment_details) && shipment_details.length > 0) {
           volumetricWeight = shipment_details.reduce((sum, item) => {
-            const volWeightForItem =
+            const v =
               ((item.length || 0) *
                 (item.width || 0) *
                 (item.height || 0) *
                 (item.count || 0)) /
               kFactor;
-            return sum + Math.ceil(volWeightForItem);
+            return sum + Math.ceil(v);
           }, 0);
         } else {
-          const volWeightForLegacy =
-            ((length || 0) *
-              (width || 0) *
-              (height || 0) *
-              (noofboxes || 0)) /
+          const v =
+            ((length || 0) * (width || 0) * (height || 0) * (noofboxes || 0)) /
             kFactor;
-          volumetricWeight = Math.ceil(volWeightForLegacy);
+          volumetricWeight = Math.ceil(v);
         }
 
         const chargeableWeight = Math.max(volumetricWeight, actualWeight);
@@ -484,11 +478,7 @@ export const calculatePrice = async (req, res) => {
         );
 
         if (l1 < totalCharges) return null;
-
-        if (!isSubscribed) {
-          // still compute but hide
-          return { totalCharges, isHidden: true };
-        }
+        if (!isSubscribed) return { totalCharges, isHidden: true };
 
         return {
           companyId: data._id,
@@ -696,9 +686,9 @@ export const getTransporters = async (req, res) => {
 
 export const getAllTransporters = async (req, res) => {
   try {
-    const transporters = await transporterModel.find().select(
-      "-password -servicableZones -service"
-    );
+    const transporters = await transporterModel
+      .find()
+      .select("-password -servicableZones -service");
     if (transporters.length === 0) {
       return res.status(404).json({
         success: false,
