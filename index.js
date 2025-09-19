@@ -36,6 +36,7 @@ const STATIC_ALLOWED = [
 "https://newtesterfrontend.netlify.app",
 "https://tester-frontend-bxo2-3h45p0xjm-testforus12-cybers-projects.vercel.app",
 'https://peaceful-halva-d8c713.netlify.app',
+"https://transporter-signup.netlify.app",
 'https://freightcompare.netlify.app',
 ];
 
